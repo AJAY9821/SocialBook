@@ -205,34 +205,48 @@ export class UserVerificationService {
       // Generate a new verification token
       const newVerificationToken = await this.generateVerificationToken(user);
 
-      const { subject, emailBody, fromEmail, ForgotPasswordTemplate } =
-        CustomConfigService.PROPERTIES.forgotPasswordEmail;
+      const frontendUrl =
+        process.env.FRONTEND_URL || 'http://localhost:5173';
+      const forgotPassLink = `${frontendUrl}/reset-password?token=${newVerificationToken.token}`;
 
-      const serverUrl = `${req.protocol}://${req.get('host')}`;
-      const forgotPassLink = `${serverUrl}/api/forget_password/${newVerificationToken.token}`;
-      const data = { link: forgotPassLink };
+      this.logger.log(`Password reset link generated for ${user.email}: ${forgotPassLink}`);
 
-      console.log({ forgotPassLink });
+      // If AWS SES credentials exist, attempt to send real email
+      if (
+        process.env.AWS_SES_ACCESS_KEY_ID &&
+        process.env.AWS_SES_SECRET_ACCESS_KEY
+      ) {
+        try {
+          const { subject, emailBody, fromEmail, ForgotPasswordTemplate } =
+            CustomConfigService.PROPERTIES.forgotPasswordEmail;
 
-      const html = ForgotPasswordTemplate.replace(
-        '$$email',
-        user.name || user.email,
-      )
-        .replace('$$data.link', data.link)
-        .replace('$$timeLeftMessage', '24 Hours');
+          const html = ForgotPasswordTemplate.replace(
+            '$$email',
+            user.name || user.email,
+          )
+            .replace('$$data.link', forgotPassLink)
+            .replace('$$timeLeftMessage', '24 Hours');
 
-      await this.emailService.sendTextMail({
-        fromEmail,
-        toEmail: user.email,
-        subject,
-        textBody: emailBody,
-        html,
-      });
+          await this.emailService.sendTextMail({
+            fromEmail,
+            toEmail: user.email,
+            subject,
+            textBody: emailBody,
+            html,
+          });
+        } catch (emailErr) {
+          this.logger.warn(
+            `AWS SES email delivery failed (${emailErr?.message}). Using local link fallback.`,
+          );
+        }
+      }
 
       return {
         error: false,
         statusCode: HttpStatus.OK,
-        msg: 'Password reset email sent! Check your inbox for instructions.',
+        msg: 'Password reset link generated successfully!',
+        resetToken: newVerificationToken.token,
+        resetLink: forgotPassLink,
       };
     } catch (error) {
       throw error;
@@ -243,16 +257,23 @@ export class UserVerificationService {
     try {
       const userVerificationToken = await this.VerificationTokenModel.findOne({
         token: newUserData.token,
+        isExpired: false,
       });
 
       if (!userVerificationToken) {
-        throw new BadRequestException('Invalid or expired token');
+        throw new BadRequestException('Invalid or expired password reset token.');
+      }
+
+      if (userVerificationToken.expiry < new Date()) {
+        userVerificationToken.isExpired = true;
+        await userVerificationToken.save();
+        throw new BadRequestException('Password reset token has expired. Please request a new one.');
       }
 
       const user = await this.UserModel.findById(userVerificationToken.userId);
 
       if (!user) {
-        throw new BadRequestException('User not found');
+        throw new BadRequestException('User account not found.');
       }
 
       const hashedPassword = await argon2.hash(newUserData.newPass);
@@ -265,10 +286,14 @@ export class UserVerificationService {
         { runValidators: true, new: true },
       );
 
+      // Expire the verification token so it cannot be used twice
+      userVerificationToken.isExpired = true;
+      await userVerificationToken.save();
+
       return {
         error: false,
         statusCode: HttpStatus.OK,
-        msg: 'User password updated successfully',
+        msg: 'Your password has been reset successfully. You can now log in with your new password.',
       };
     } catch (error) {
       throw error;

@@ -16,6 +16,13 @@ import {
   RegisterReqDto,
   RegisterResDto,
 } from './credentials-auth-dto';
+import {
+  forgotPassReqDTO,
+  forgotPassResDTO,
+  ResetPassReqDTO,
+  ResetPassResDTO,
+} from './common/user-verification-dto';
+import { UserVerificationService } from './common';
 import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Request } from 'express';
 import { ErrorResponse } from 'src/utils/responses';
@@ -26,6 +33,7 @@ import { AuthGuard } from 'src/middlewares';
 export class CredentialsAuthController {
   constructor(
     private readonly credentialsAuthService: CredentialsAuthService,
+    private readonly userVerificationService: UserVerificationService,
   ) {}
 
   @ApiResponse({
@@ -57,6 +65,31 @@ export class CredentialsAuthController {
   @Post('login')
   async login(@Body() loginData: LoginReqDto) {
     return this.credentialsAuthService.login(loginData);
+  }
+
+  @ApiResponse({
+    status: 200,
+    description: 'Generates a password reset link.',
+    type: forgotPassResDTO,
+  })
+  @HttpCode(HttpStatus.OK)
+  @Post('forgot-password')
+  async forgotPassword(
+    @Body() forgotPassData: forgotPassReqDTO,
+    @Req() req: Request,
+  ) {
+    return this.userVerificationService.sendForgotPassEmail(forgotPassData, req);
+  }
+
+  @ApiResponse({
+    status: 200,
+    description: 'Resets the user password with a valid token.',
+    type: ResetPassResDTO,
+  })
+  @HttpCode(HttpStatus.OK)
+  @Post('reset-password')
+  async resetPassword(@Body() resetPassData: ResetPassReqDTO) {
+    return this.userVerificationService.resetPassword(resetPassData);
   }
 
   @ApiResponse({

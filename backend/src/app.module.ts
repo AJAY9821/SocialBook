@@ -15,6 +15,7 @@ import { PostsModule } from './posts/posts.module';
 import { LikesModule } from './likes/likes.module';
 import { CommentsModule } from './comments/comments.module';
 import { FriendsModule } from './friends/friends.module';
+import { NotificationsModule } from './notifications/notifications.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { FriendsModule } from './friends/friends.module';
     LikesModule,
     CommentsModule,
     FriendsModule,
+    NotificationsModule,
     ThirdPartyModule,
     CommonModule,
   ],

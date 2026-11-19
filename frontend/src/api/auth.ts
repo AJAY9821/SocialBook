@@ -54,4 +54,24 @@ export const authApi = {
     }>('/auth/logout');
     return data;
   },
+
+  async forgotPassword(email: string) {
+    const { data } = await apiClient.post<{
+      error: boolean;
+      statusCode: number;
+      msg: string;
+      resetToken?: string;
+      resetLink?: string;
+    }>('/auth/forgot-password', { email });
+    return data;
+  },
+
+  async resetPassword(payload: { token: string; newPass: string; confirmNewPass: string }) {
+    const { data } = await apiClient.post<{
+      error: boolean;
+      statusCode: number;
+      msg: string;
+    }>('/auth/reset-password', payload);
+    return data;
+  },
 };
