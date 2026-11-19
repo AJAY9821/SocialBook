@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Eye, EyeOff } from 'lucide-react';
 import { authApi } from '../api/auth';
 import { getErrorMessage } from '../api/client';
 
@@ -11,6 +12,8 @@ export function ResetPasswordPage() {
   const [token, setToken] = useState(tokenFromUrl);
   const [newPass, setNewPass] = useState('');
   const [confirmNewPass, setConfirmNewPass] = useState('');
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [showConfirmNewPass, setShowConfirmNewPass] = useState(false);
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -107,15 +110,25 @@ export function ResetPasswordPage() {
             >
               New Password
             </label>
-            <input
-              id="newPass"
-              type="password"
-              required
-              value={newPass}
-              onChange={(e) => setNewPass(e.target.value)}
-              placeholder="At least 8 chars (e.g. Secret@123)"
-              className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            />
+            <div className="relative">
+              <input
+                id="newPass"
+                type={showNewPass ? 'text' : 'password'}
+                required
+                value={newPass}
+                onChange={(e) => setNewPass(e.target.value)}
+                placeholder="At least 8 chars (e.g. Secret@123)"
+                className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 pr-10 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPass((prev) => !prev)}
+                aria-label={showNewPass ? 'Hide password' : 'Show password'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+              >
+                {showNewPass ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
             <p className="mt-1 text-xs text-slate-400">
               Must include 1 uppercase, 1 lowercase, 1 digit, and 1 special character (!@#$%^&*).
             </p>
@@ -128,15 +141,25 @@ export function ResetPasswordPage() {
             >
               Confirm New Password
             </label>
-            <input
-              id="confirmNewPass"
-              type="password"
-              required
-              value={confirmNewPass}
-              onChange={(e) => setConfirmNewPass(e.target.value)}
-              placeholder="Confirm new password"
-              className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-            />
+            <div className="relative">
+              <input
+                id="confirmNewPass"
+                type={showConfirmNewPass ? 'text' : 'password'}
+                required
+                value={confirmNewPass}
+                onChange={(e) => setConfirmNewPass(e.target.value)}
+                placeholder="Confirm new password"
+                className="w-full rounded-lg border border-slate-300 px-3.5 py-2.5 pr-10 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmNewPass((prev) => !prev)}
+                aria-label={showConfirmNewPass ? 'Hide confirm password' : 'Show confirm password'}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 focus:outline-none cursor-pointer"
+              >
+                {showConfirmNewPass ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
           </div>
 
           <button

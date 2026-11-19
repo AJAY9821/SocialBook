@@ -40,11 +40,14 @@ export class UserVerificationService {
   ): Promise<VerificationToken> {
     const registartionToken: string = uuidv4();
 
+    // Exactly 1 minute (60 seconds = 60,000 milliseconds)
+    const ONE_MINUTE_MS = 60 * 1000;
+
     const tokenObj: VerificationToken =
       await this.VerificationTokenModel.create({
         userId: user._id.toString(),
         token: registartionToken,
-        expiry: Date.now() + Number(process.env.VERIFICATION_TOKEN_EXPIRY),
+        expiry: new Date(Date.now() + ONE_MINUTE_MS),
       });
 
     return tokenObj;
@@ -225,7 +228,7 @@ export class UserVerificationService {
             user.name || user.email,
           )
             .replace('$$data.link', forgotPassLink)
-            .replace('$$timeLeftMessage', '24 Hours');
+            .replace('$$timeLeftMessage', '1 Minute');
 
           await this.emailService.sendTextMail({
             fromEmail,
