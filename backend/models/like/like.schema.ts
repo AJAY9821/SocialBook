@@ -1,0 +1,18 @@
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Types } from 'mongoose';
+
+@Schema({ timestamps: true })
+export class Like extends Document {
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  user: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Post', required: true, index: true })
+  post: Types.ObjectId;
+
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export const LikeSchema = SchemaFactory.createForClass(Like);
+
+LikeSchema.index({ user: 1, post: 1 }, { unique: true });
