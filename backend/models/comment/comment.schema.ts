@@ -9,6 +9,9 @@ export class Comment extends Document {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   author: Types.ObjectId;
 
+  @Prop({ type: Types.ObjectId, ref: 'Comment', default: null, index: true })
+  parentId?: Types.ObjectId | null;
+
   @Prop({ type: String, required: true, trim: true, maxlength: 2000 })
   content: string;
 
@@ -21,4 +24,5 @@ export class Comment extends Document {
 
 export const CommentSchema = SchemaFactory.createForClass(Comment);
 
+CommentSchema.index({ post: 1, parentId: 1, createdAt: 1 });
 CommentSchema.index({ post: 1, createdAt: -1 });

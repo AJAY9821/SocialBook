@@ -57,6 +57,12 @@ export class User extends Document {
 
   @Prop({ type: String, required: false, default: '', maxlength: 200, trim: true })
   website?: string;
+
+  @Prop({ type: [String], default: [] })
+  readNotificationIds: string[];
+
+  @Prop({ type: Date, default: null })
+  lastReadNotificationAt?: Date;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

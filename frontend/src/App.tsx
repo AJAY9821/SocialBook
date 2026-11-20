@@ -8,12 +8,14 @@ import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { FeedPage } from './pages/FeedPage';
 import { FriendsPage } from './pages/FriendsPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { SinglePostPage } from './pages/SinglePostPage';
+import { ChatPage } from './pages/ChatPage';
 
 function AppLayout() {
   return (
     <div className="min-h-screen bg-slate-100">
       <Navbar />
-      <main className="mx-auto max-w-3xl px-4 py-6">
+      <main className="mx-auto max-w-4xl px-4 py-6">
         <Outlet />
       </main>
     </div>
@@ -33,7 +35,10 @@ export default function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
           <Route path="/" element={<FeedPage />} />
+          <Route path="/posts/:id" element={<SinglePostPage />} />
           <Route path="/friends" element={<FriendsPage />} />
+          <Route path="/messages" element={<ChatPage />} />
+          <Route path="/messages/:friendId" element={<ChatPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/profile/:id" element={<ProfilePage />} />
         </Route>

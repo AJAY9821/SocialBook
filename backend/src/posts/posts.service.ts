@@ -10,7 +10,7 @@ import { Model, Types } from 'mongoose';
 import { Post } from 'models/post';
 import { FRIENDSHIP_STATUS, Friendship } from 'models/friendship';
 import { Like } from 'models/like';
-import { CreatePostDto, UpdatePostDto } from './dto';
+import { CreatePostDto, SharePostDto, UpdatePostDto } from './dto';
 
 @Injectable()
 export class PostsService {
@@ -79,6 +79,10 @@ export class PostsService {
         .skip(skip)
         .limit(safeLimit)
         .populate('author', 'name email avatarUrl')
+        .populate({
+          path: 'originalPost',
+          populate: { path: 'author', select: 'name email avatarUrl' },
+        })
         .exec(),
       this.postModel.countDocuments(filter),
     ]);
@@ -126,6 +130,10 @@ export class PostsService {
         .skip(skip)
         .limit(safeLimit)
         .populate('author', 'name email avatarUrl')
+        .populate({
+          path: 'originalPost',
+          populate: { path: 'author', select: 'name email avatarUrl' },
+        })
         .exec(),
       this.postModel.countDocuments(filter),
     ]);
@@ -155,6 +163,10 @@ export class PostsService {
     const post = await this.postModel
       .findOne({ _id: postId, isDeleted: false })
       .populate('author', 'name email avatarUrl')
+      .populate({
+        path: 'originalPost',
+        populate: { path: 'author', select: 'name email avatarUrl' },
+      })
       .exec();
 
     if (!post) {
@@ -248,6 +260,81 @@ export class PostsService {
     };
   }
 
+  async sharePost(userId: string, postId: string, sharePostDto: SharePostDto) {
+    if (!Types.ObjectId.isValid(postId)) {
+      throw new BadRequestException('Invalid post ID.');
+    }
+
+    const targetPost = await this.postModel.findOne({
+      _id: postId,
+      isDeleted: false,
+    });
+
+    if (!targetPost) {
+      throw new NotFoundException('Post to share not found.');
+    }
+
+    // Resolve root post to prevent infinitely deep nested reposts
+    const rootPostId = targetPost.originalPost || targetPost._id;
+
+    // Atomically increment shares count on the root post
+    await this.postModel.findByIdAndUpdate(rootPostId, {
+      $inc: { sharesCount: 1 },
+    });
+
+    // Create the new shared post
+    const sharedPost = await this.postModel.create({
+      author: new Types.ObjectId(userId),
+      content: sharePostDto.caption || '',
+      originalPost: rootPostId,
+    });
+
+    const populatedPost = await sharedPost.populate([
+      { path: 'author', select: 'name email avatarUrl' },
+      {
+        path: 'originalPost',
+        populate: { path: 'author', select: 'name email avatarUrl' },
+      },
+    ]);
+
+    return {
+      error: false,
+      statusCode: HttpStatus.CREATED,
+      msg: 'Post shared successfully.',
+      post: this.formatPost(populatedPost, false),
+    };
+  }
+
+  async incrementShareCount(postId: string) {
+    if (!Types.ObjectId.isValid(postId)) {
+      throw new BadRequestException('Invalid post ID.');
+    }
+
+    const post = await this.postModel.findOne({
+      _id: postId,
+      isDeleted: false,
+    });
+
+    if (!post) {
+      throw new NotFoundException('Post not found.');
+    }
+
+    const rootPostId = post.originalPost || post._id;
+
+    const updated = await this.postModel.findByIdAndUpdate(
+      rootPostId,
+      { $inc: { sharesCount: 1 } },
+      { new: true },
+    );
+
+    return {
+      error: false,
+      statusCode: HttpStatus.OK,
+      msg: 'Share count incremented.',
+      sharesCount: updated?.sharesCount ?? 1,
+    };
+  }
+
   private async getLikedPostIdSet(
     userId: string,
     posts: Post[],
@@ -269,17 +356,36 @@ export class PostsService {
   }
 
   private formatPost(post: Post, isLikedByMe: boolean) {
-    const postObj = post.toObject();
+    const postObj = post.toObject ? post.toObject() : (post as any);
     return {
       id: postObj._id.toString(),
       author: postObj.author,
-      content: postObj.content,
+      content: postObj.content || '',
       imageUrl: postObj.imageUrl || '',
-      likesCount: postObj.likesCount,
-      commentsCount: postObj.commentsCount,
+      likesCount: postObj.likesCount || 0,
+      commentsCount: postObj.commentsCount || 0,
+      sharesCount: postObj.sharesCount || 0,
+      originalPost: postObj.originalPost
+        ? this.formatOriginalPost(postObj.originalPost)
+        : null,
       isLikedByMe,
       createdAt: postObj.createdAt,
       updatedAt: postObj.updatedAt,
+    };
+  }
+
+  private formatOriginalPost(orig: any) {
+    if (!orig || !orig._id) return null;
+    return {
+      id: orig._id.toString(),
+      author: orig.author,
+      content: orig.content || '',
+      imageUrl: orig.imageUrl || '',
+      likesCount: orig.likesCount || 0,
+      commentsCount: orig.commentsCount || 0,
+      sharesCount: orig.sharesCount || 0,
+      createdAt: orig.createdAt,
+      updatedAt: orig.updatedAt,
     };
   }
 }

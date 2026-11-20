@@ -6,7 +6,7 @@ export class Post extends Document {
   @Prop({ type: Types.ObjectId, ref: 'User', required: true, index: true })
   author: Types.ObjectId;
 
-  @Prop({ type: String, required: true, trim: true, maxlength: 5000 })
+  @Prop({ type: String, required: false, trim: true, maxlength: 5000, default: '' })
   content: string;
 
   @Prop({ type: String, required: false, default: '' })
@@ -18,6 +18,12 @@ export class Post extends Document {
   @Prop({ type: Number, default: 0, min: 0 })
   commentsCount: number;
 
+  @Prop({ type: Number, default: 0, min: 0 })
+  sharesCount: number;
+
+  @Prop({ type: Types.ObjectId, ref: 'Post', required: false, default: null, index: true })
+  originalPost?: Types.ObjectId | null;
+
   @Prop({ type: Boolean, default: false })
   isDeleted: boolean;
 
@@ -28,3 +34,4 @@ export class Post extends Document {
 export const PostSchema = SchemaFactory.createForClass(Post);
 
 PostSchema.index({ author: 1, createdAt: -1 });
+PostSchema.index({ originalPost: 1 });

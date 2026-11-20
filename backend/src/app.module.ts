@@ -16,6 +16,7 @@ import { LikesModule } from './likes/likes.module';
 import { CommentsModule } from './comments/comments.module';
 import { FriendsModule } from './friends/friends.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     CommentsModule,
     FriendsModule,
     NotificationsModule,
+    ChatModule,
     ThirdPartyModule,
     CommonModule,
   ],

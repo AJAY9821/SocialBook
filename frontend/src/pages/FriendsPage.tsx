@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Link } from 'react-router-dom';
 import {
   Check,
+  MessageSquare,
   Search,
   UserCheck,
   UserMinus,
@@ -269,15 +270,24 @@ export function FriendsPage() {
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    disabled={busyId === friend.id}
-                    onClick={() => void handleUnfriend(friend.id, friend.name)}
-                    className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 cursor-pointer shrink-0"
-                  >
-                    <UserMinus className="h-3.5 w-3.5" />
-                    Unfriend
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Link
+                      to={`/messages/${friend.id}`}
+                      className="flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-100"
+                    >
+                      <MessageSquare className="h-3.5 w-3.5" />
+                      Message
+                    </Link>
+                    <button
+                      type="button"
+                      disabled={busyId === friend.id}
+                      onClick={() => void handleUnfriend(friend.id, friend.name)}
+                      className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 cursor-pointer"
+                    >
+                      <UserMinus className="h-3.5 w-3.5" />
+                      Unfriend
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

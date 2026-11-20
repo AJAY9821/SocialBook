@@ -50,6 +50,15 @@ export const postsApi = {
     return data;
   },
 
+  async getPostById(postId: string) {
+    const { data } = await apiClient.get<{
+      error: boolean;
+      statusCode: number;
+      post: Post;
+    }>(`/posts/${postId}`);
+    return data;
+  },
+
   async updatePost(postId: string, payload: UpdatePostPayload) {
     const formData = new FormData();
     if (payload.content !== undefined) {
@@ -109,13 +118,13 @@ export const postsApi = {
     return data;
   },
 
-  async addComment(postId: string, content: string) {
+  async addComment(postId: string, content: string, parentId?: string) {
     const { data } = await apiClient.post<{
       error: boolean;
       statusCode: number;
       msg: string;
       comment: CommentItem;
-    }>(`/comments/${postId}`, { content });
+    }>(`/comments/${postId}`, { content, parentId });
     return data;
   },
 
@@ -135,6 +144,26 @@ export const postsApi = {
       statusCode: number;
       msg: string;
     }>(`/comments/${commentId}`);
+    return data;
+  },
+
+  async sharePost(postId: string, caption?: string) {
+    const { data } = await apiClient.post<{
+      error: boolean;
+      statusCode: number;
+      msg: string;
+      post: Post;
+    }>(`/posts/${postId}/share`, { caption });
+    return data;
+  },
+
+  async incrementShareCount(postId: string) {
+    const { data } = await apiClient.post<{
+      error: boolean;
+      statusCode: number;
+      msg: string;
+      sharesCount: number;
+    }>(`/posts/${postId}/share-count`);
     return data;
   },
 };

@@ -1,6 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Pencil, Send, Trash2, X } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  CornerDownRight,
+  Pencil,
+  Send,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { postsApi } from '../api/posts';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -32,9 +41,20 @@ export function CommentSection({
   const [loading, setLoading] = useState(true);
   const [newComment, setNewComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // Editing state (works for both comments and replies)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Replying state
+  const [replyingToId, setReplyingToId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [submittingReply, setSubmittingReply] = useState(false);
+
+  // Collapsed / expanded replies map (true = show replies)
+  const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
+
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -44,7 +64,17 @@ export function CommentSection({
       setError('');
       try {
         const res = await postsApi.getComments(postId, 1, 30);
-        if (active) setComments(res.comments);
+        if (active) {
+          setComments(res.comments);
+          // By default expand threads that already have replies
+          const initialExpanded: Record<string, boolean> = {};
+          res.comments.forEach((c) => {
+            if (c.replies && c.replies.length > 0) {
+              initialExpanded[c.id] = true;
+            }
+          });
+          setExpandedThreads(initialExpanded);
+        }
       } catch (err) {
         if (active) setError(getErrorMessage(err, 'Failed to load comments.'));
       } finally {
@@ -65,13 +95,42 @@ export function CommentSection({
     setSubmitting(true);
     try {
       const res = await postsApi.addComment(postId, newComment.trim());
-      setComments((prev) => [res.comment, ...prev]);
+      setComments((prev) => [{ ...res.comment, replies: [] }, ...prev]);
       setNewComment('');
       onCountChange(1);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to add comment.'));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleAddReply = async (parentCommentId: string) => {
+    if (!replyText.trim()) return;
+
+    setError('');
+    setSubmittingReply(true);
+    try {
+      const res = await postsApi.addComment(postId, replyText.trim(), parentCommentId);
+      setComments((prev) =>
+        prev.map((c) => {
+          if (c.id === parentCommentId) {
+            return {
+              ...c,
+              replies: [...(c.replies || []), res.comment],
+            };
+          }
+          return c;
+        }),
+      );
+      setReplyText('');
+      setReplyingToId(null);
+      setExpandedThreads((prev) => ({ ...prev, [parentCommentId]: true }));
+      onCountChange(1);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to add reply.'));
+    } finally {
+      setSubmittingReply(false);
     }
   };
 
@@ -82,7 +141,20 @@ export function CommentSection({
     try {
       const res = await postsApi.updateComment(commentId, editText.trim());
       setComments((prev) =>
-        prev.map((c) => (c.id === commentId ? res.comment : c)),
+        prev.map((c) => {
+          if (c.id === commentId) {
+            return { ...c, content: res.comment.content };
+          }
+          if (c.replies && c.replies.some((r) => r.id === commentId)) {
+            return {
+              ...c,
+              replies: c.replies.map((r) =>
+                r.id === commentId ? { ...r, content: res.comment.content } : r,
+              ),
+            };
+          }
+          return c;
+        }),
       );
       setEditingId(null);
       setEditText('');
@@ -93,20 +165,46 @@ export function CommentSection({
     }
   };
 
-  const handleDelete = async (commentId: string) => {
+  const handleDelete = async (commentId: string, parentId?: string) => {
     setError('');
     try {
       await postsApi.deleteComment(commentId);
-      setComments((prev) => prev.filter((c) => c.id !== commentId));
-      onCountChange(-1);
+      if (parentId) {
+        // Deleted a reply
+        setComments((prev) =>
+          prev.map((c) => {
+            if (c.id === parentId) {
+              return {
+                ...c,
+                replies: (c.replies || []).filter((r) => r.id !== commentId),
+              };
+            }
+            return c;
+          }),
+        );
+        onCountChange(-1);
+      } else {
+        // Deleted a top-level comment (which also deletes its replies)
+        const target = comments.find((c) => c.id === commentId);
+        const childCount = target?.replies?.length || 0;
+        setComments((prev) => prev.filter((c) => c.id !== commentId));
+        onCountChange(-(1 + childCount));
+      }
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to delete comment.'));
     }
   };
 
+  const toggleThread = (commentId: string) => {
+    setExpandedThreads((prev) => ({
+      ...prev,
+      [commentId]: !prev[commentId],
+    }));
+  };
+
   return (
     <div className="mt-3 border-t border-slate-100 pt-3 space-y-3">
-      {/* Add comment form */}
+      {/* Top-level Add comment form */}
       <form onSubmit={handleAddComment} className="flex items-center gap-2">
         <Avatar name={user?.name} avatarUrl={user?.avatarUrl} size="sm" />
         <input
@@ -119,7 +217,7 @@ export function CommentSection({
         <button
           type="submit"
           disabled={submitting || !newComment.trim()}
-          className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+          className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer shrink-0"
           aria-label="Send comment"
         >
           <Send className="h-4 w-4" />
@@ -142,97 +240,295 @@ export function CommentSection({
           No comments yet. Be the first to comment!
         </p>
       ) : (
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {comments.map((comment) => {
             const isCommentAuthor = user?.id === comment.author?._id;
             const canDelete = isCommentAuthor || user?.id === postAuthorId;
             const isEditing = editingId === comment.id;
+            const isReplying = replyingToId === comment.id;
+            const replies = comment.replies || [];
+            const hasReplies = replies.length > 0;
+            const isThreadExpanded = !!expandedThreads[comment.id];
 
             return (
-              <div key={comment.id} className="flex items-start gap-2.5">
-                <Link to={`/profile/${comment.author._id}`} className="mt-0.5">
-                  <Avatar
-                    name={comment.author.name}
-                    avatarUrl={comment.author.avatarUrl}
-                    size="sm"
-                  />
-                </Link>
+              <div key={comment.id} className="group flex flex-col">
+                {/* Main Comment Row */}
+                <div className="flex items-start gap-2.5">
+                  <Link to={`/profile/${comment.author._id}`} className="mt-0.5 shrink-0">
+                    <Avatar
+                      name={comment.author.name}
+                      avatarUrl={comment.author.avatarUrl}
+                      size="sm"
+                    />
+                  </Link>
 
-                <div className="flex-1 rounded-xl bg-slate-50 px-3.5 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <Link
-                        to={`/profile/${comment.author._id}`}
-                        className="text-xs font-semibold text-slate-900 hover:text-blue-600 hover:underline"
-                      >
-                        {comment.author.name}
-                      </Link>
-                      <span className="text-[11px] text-slate-400">
-                        {formatShortDate(comment.createdAt)}
-                      </span>
-                    </div>
+                  <div className="flex-1 min-w-0">
+                    {/* Bubble */}
+                    <div className="rounded-2xl bg-slate-100 px-3.5 py-2 inline-block max-w-full">
+                      <div className="flex items-center justify-between gap-3">
+                        <Link
+                          to={`/profile/${comment.author._id}`}
+                          className="text-xs font-semibold text-slate-900 hover:text-blue-600 hover:underline"
+                        >
+                          {comment.author.name}
+                        </Link>
 
-                    {!isEditing && (isCommentAuthor || canDelete) && (
-                      <div className="flex items-center gap-1">
-                        {isCommentAuthor && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingId(comment.id);
-                              setEditText(comment.content);
-                            }}
-                            className="rounded p-1 text-slate-400 hover:bg-slate-200 hover:text-blue-600 cursor-pointer"
-                            title="Edit comment"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                        {canDelete && (
-                          <button
-                            type="button"
-                            onClick={() => void handleDelete(comment.id)}
-                            className="rounded p-1 text-slate-400 hover:bg-red-100 hover:text-red-600 cursor-pointer"
-                            title="Delete comment"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                        {!isEditing && (isCommentAuthor || canDelete) && (
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                            {isCommentAuthor && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingId(comment.id);
+                                  setEditText(comment.content);
+                                }}
+                                className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-blue-600 cursor-pointer"
+                                title="Edit comment"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                            )}
+                            {canDelete && (
+                              <button
+                                type="button"
+                                onClick={() => void handleDelete(comment.id)}
+                                className="rounded p-0.5 text-slate-400 hover:bg-red-100 hover:text-red-600 cursor-pointer"
+                                title="Delete comment"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
-                    )}
-                  </div>
 
-                  {isEditing ? (
-                    <div className="mt-1.5 flex items-center gap-1.5">
+                      {isEditing ? (
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            value={editText}
+                            onChange={(e) => setEditText(e.target.value)}
+                            className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500"
+                          />
+                          <button
+                            type="button"
+                            disabled={savingEdit || !editText.trim()}
+                            onClick={() => void handleSaveEdit(comment.id)}
+                            className="rounded-lg bg-blue-600 p-1 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                            title="Save"
+                          >
+                            <Check className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingId(null)}
+                            className="rounded-lg border border-slate-200 bg-white p-1 text-slate-500 hover:bg-slate-100 cursor-pointer"
+                            title="Cancel"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-800 break-words">
+                          {comment.content}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Comment Footer: Time & Reply button */}
+                    <div className="mt-1 flex items-center gap-3 pl-2 text-[11px] text-slate-500">
+                      <span>{formatShortDate(comment.createdAt)}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isReplying) {
+                            setReplyingToId(null);
+                            setReplyText('');
+                          } else {
+                            setReplyingToId(comment.id);
+                            setReplyText(`@${comment.author.name} `);
+                          }
+                        }}
+                        className="font-semibold text-slate-600 hover:text-blue-600 cursor-pointer transition"
+                      >
+                        {isReplying ? 'Cancel' : 'Reply'}
+                      </button>
+
+                      {hasReplies && (
+                        <button
+                          type="button"
+                          onClick={() => toggleThread(comment.id)}
+                          className="flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-700 cursor-pointer transition"
+                        >
+                          <CornerDownRight className="h-3 w-3" />
+                          <span>
+                            {replies.length} {replies.length === 1 ? 'reply' : 'replies'}
+                          </span>
+                          {isThreadExpanded ? (
+                            <ChevronUp className="h-3 w-3" />
+                          ) : (
+                            <ChevronDown className="h-3 w-3" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Inline Reply Input Box */}
+                {isReplying && (
+                  <div className="ml-8 sm:ml-10 mt-2 flex items-center gap-2">
+                    <Avatar name={user?.name} avatarUrl={user?.avatarUrl} size="xs" />
+                    <div className="relative flex-1">
                       <input
                         type="text"
-                        value={editText}
-                        onChange={(e) => setEditText(e.target.value)}
-                        className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500"
+                        autoFocus
+                        value={replyText}
+                        onChange={(e) => setReplyText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            void handleAddReply(comment.id);
+                          }
+                        }}
+                        placeholder={`Reply to @${comment.author.name}...`}
+                        className="w-full rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 pr-8 text-xs outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
                       />
                       <button
                         type="button"
-                        disabled={savingEdit || !editText.trim()}
-                        onClick={() => void handleSaveEdit(comment.id)}
-                        className="rounded-lg bg-blue-600 p-1.5 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
-                        title="Save"
+                        disabled={submittingReply || !replyText.trim()}
+                        onClick={() => void handleAddReply(comment.id)}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-blue-600 hover:bg-blue-50 disabled:opacity-40 cursor-pointer"
+                        title="Send reply"
                       >
-                        <Check className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditingId(null)}
-                        className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-500 hover:bg-slate-100 cursor-pointer"
-                        title="Cancel"
-                      >
-                        <X className="h-3.5 w-3.5" />
+                        <Send className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                  ) : (
-                    <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-700">
-                      {comment.content}
-                    </p>
-                  )}
-                </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReplyingToId(null);
+                        setReplyText('');
+                      }}
+                      className="rounded-full p-1 text-slate-400 hover:bg-slate-100 cursor-pointer"
+                      title="Cancel reply"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Nested Threaded Replies List */}
+                {hasReplies && isThreadExpanded && (
+                  <div className="ml-6 sm:ml-8 mt-2 space-y-2 border-l-2 border-slate-200 pl-3">
+                    {replies.map((reply) => {
+                      const isReplyAuthor = user?.id === reply.author?._id;
+                      const canDeleteReply = isReplyAuthor || user?.id === postAuthorId;
+                      const isEditingReply = editingId === reply.id;
+
+                      return (
+                        <div key={reply.id} className="group/reply flex items-start gap-2">
+                          <Link to={`/profile/${reply.author._id}`} className="mt-0.5 shrink-0">
+                            <Avatar
+                              name={reply.author.name}
+                              avatarUrl={reply.author.avatarUrl}
+                              size="xs"
+                            />
+                          </Link>
+
+                          <div className="flex-1 min-w-0">
+                            {/* Reply bubble */}
+                            <div className="rounded-xl bg-slate-100 px-3 py-1.5 inline-block max-w-full">
+                              <div className="flex items-center justify-between gap-2">
+                                <Link
+                                  to={`/profile/${reply.author._id}`}
+                                  className="text-[11px] font-semibold text-slate-900 hover:text-blue-600 hover:underline"
+                                >
+                                  {reply.author.name}
+                                </Link>
+
+                                {!isEditingReply && (isReplyAuthor || canDeleteReply) && (
+                                  <div className="flex items-center gap-1 opacity-0 group-hover/reply:opacity-100 transition">
+                                    {isReplyAuthor && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingId(reply.id);
+                                          setEditText(reply.content);
+                                        }}
+                                        className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-blue-600 cursor-pointer"
+                                        title="Edit reply"
+                                      >
+                                        <Pencil className="h-2.5 w-2.5" />
+                                      </button>
+                                    )}
+                                    {canDeleteReply && (
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleDelete(reply.id, comment.id)}
+                                        className="rounded p-0.5 text-slate-400 hover:bg-red-100 hover:text-red-600 cursor-pointer"
+                                        title="Delete reply"
+                                      >
+                                        <Trash2 className="h-2.5 w-2.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+
+                              {isEditingReply ? (
+                                <div className="mt-1 flex items-center gap-1">
+                                  <input
+                                    type="text"
+                                    value={editText}
+                                    onChange={(e) => setEditText(e.target.value)}
+                                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs outline-none focus:border-blue-500"
+                                  />
+                                  <button
+                                    type="button"
+                                    disabled={savingEdit || !editText.trim()}
+                                    onClick={() => void handleSaveEdit(reply.id)}
+                                    className="rounded bg-blue-600 p-1 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
+                                    title="Save"
+                                  >
+                                    <Check className="h-2.5 w-2.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingId(null)}
+                                    className="rounded border border-slate-200 bg-white p-1 text-slate-500 hover:bg-slate-100 cursor-pointer"
+                                    title="Cancel"
+                                  >
+                                    <X className="h-2.5 w-2.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <p className="mt-0.5 whitespace-pre-wrap text-xs text-slate-800 break-words">
+                                  {reply.content}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Reply row footer: Time and Reply button */}
+                            <div className="mt-0.5 flex items-center gap-2 pl-1.5 text-[10px] text-slate-400">
+                              <span>{formatShortDate(reply.createdAt)}</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReplyingToId(comment.id);
+                                  setReplyText(`@${reply.author.name} `);
+                                }}
+                                className="font-semibold text-slate-600 hover:text-blue-600 cursor-pointer transition"
+                              >
+                                Reply
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}

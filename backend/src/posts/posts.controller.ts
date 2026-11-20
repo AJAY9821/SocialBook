@@ -30,7 +30,7 @@ import * as path from 'path';
 import { v4 as uuid } from 'uuid';
 import { AuthGuard } from 'src/middlewares';
 import { PostsService } from './posts.service';
-import { CreatePostDto, UpdatePostDto } from './dto';
+import { CreatePostDto, SharePostDto, UpdatePostDto } from './dto';
 
 const ALLOWED_IMAGE_MIME_TYPES = new Set([
   'image/jpeg',
@@ -180,6 +180,28 @@ export class PostsController {
       updatePostDto,
       uploadedImageUrl,
     );
+  }
+
+  @ApiParam({ name: 'id', description: 'Post ID to share' })
+  @ApiResponse({ status: 201, description: 'Post shared successfully to your feed.' })
+  @Post(':id/share')
+  async sharePost(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Body() sharePostDto: SharePostDto,
+  ) {
+    const userId = req['user']._id.toString();
+    return this.postsService.sharePost(userId, id, sharePostDto);
+  }
+
+  @ApiParam({ name: 'id', description: 'Post ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Increments the shares counter for a post (e.g. when shared in chat or via link).',
+  })
+  @Post(':id/share-count')
+  async incrementShareCount(@Param('id') id: string) {
+    return this.postsService.incrementShareCount(id);
   }
 
   @ApiParam({ name: 'id', description: 'Post ID' })

@@ -1,8 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Home, Users, User as UserIcon, LogOut, Bell, Heart, MessageCircle, UserPlus } from 'lucide-react';
+import { Home, Users, User as UserIcon, LogOut, Bell, Heart, MessageCircle, MessageSquare, UserPlus, CornerDownRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { notificationsApi, type NotificationsResponse } from '../api/notifications';
+import {
+  notificationsApi,
+  type NotificationsResponse,
+  type NotificationItem,
+} from '../api/notifications';
+import { chatApi } from '../api/chat';
 import { Avatar } from './Avatar';
 
 function formatRelativeTime(dateString: string): string {
@@ -21,6 +26,7 @@ export function Navbar() {
   const navigate = useNavigate();
 
   const [notifData, setNotifData] = useState<NotificationsResponse | null>(null);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -33,14 +39,47 @@ export function Navbar() {
     }
   };
 
+  const fetchUnreadChat = async () => {
+    try {
+      const chatRes = await chatApi.getUnreadCount();
+      setUnreadChatCount(chatRes.unreadCount);
+    } catch {
+      // Non-blocking: background polling shouldn't break the UI
+    }
+  };
+
   useEffect(() => {
     if (!user) return;
     fetchNotifications();
+    fetchUnreadChat();
 
-    // Poll every 25 seconds for new activity
-    const interval = setInterval(fetchNotifications, 25000);
-    return () => clearInterval(interval);
+    // Fast 5-second polling for incoming chat messages so red badge pops up immediately
+    const chatInterval = setInterval(fetchUnreadChat, 5000);
+    // General notifications polling every 20 seconds
+    const notifInterval = setInterval(fetchNotifications, 20000);
+
+    // Instant local listener: clear unread chat count when user reads or enters chat
+    const handleChatRead = () => {
+      setUnreadChatCount(0);
+    };
+    window.addEventListener('chat:read', handleChatRead);
+
+    return () => {
+      clearInterval(chatInterval);
+      clearInterval(notifInterval);
+      window.removeEventListener('chat:read', handleChatRead);
+    };
   }, [user]);
+
+  // Update browser tab title dynamically when unread badges arrive
+  useEffect(() => {
+    const totalBadges = (notifData?.unreadCount || 0) + unreadChatCount;
+    if (totalBadges > 0) {
+      document.title = `(${totalBadges}) SocialBook`;
+    } else {
+      document.title = 'SocialBook';
+    }
+  }, [notifData?.unreadCount, unreadChatCount]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -60,6 +99,60 @@ export function Navbar() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showDropdown]);
+
+  const handleMarkAllAsRead = async () => {
+    setNotifData((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        unreadCount: 0,
+        notifications: prev.notifications.map((n) => ({ ...n, isRead: true })),
+      };
+    });
+    try {
+      await notificationsApi.markAllAsRead();
+    } catch {
+      // background update
+    }
+  };
+
+  const handleNotificationClick = (item: NotificationItem) => {
+    setShowDropdown(false);
+
+    if (!item.isRead) {
+      setNotifData((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          unreadCount: Math.max(0, prev.unreadCount - 1),
+          notifications: prev.notifications.map((n) =>
+            n.id === item.id ? { ...n, isRead: true } : n,
+          ),
+        };
+      });
+      void notificationsApi.markAsRead(item.id);
+    }
+
+    if (item.type === 'friend_request') {
+      navigate('/friends');
+    } else if (item.post?.id) {
+      const isCommentIntent = item.type === 'comment' || item.type === 'reply';
+      if (isCommentIntent) {
+        sessionStorage.setItem('open_comments_' + item.post.id, 'true');
+        // Dispatch event immediately in case the user is already on this post's page
+        window.dispatchEvent(
+          new CustomEvent('open_comments', {
+            detail: { postId: item.post.id, timestamp: Date.now() },
+          }),
+        );
+      }
+      navigate(`/posts/${item.post.id}`, {
+        state: isCommentIntent ? { openComments: true, timestamp: Date.now() } : undefined,
+      });
+    } else {
+      navigate('/');
+    }
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -104,6 +197,18 @@ export function Navbar() {
             <span className="hidden sm:inline">Friends</span>
           </NavLink>
 
+          <NavLink to="/messages" className={navLinkClass}>
+            <div className="relative flex items-center">
+              <MessageSquare className="h-4 w-4" />
+              {unreadChatCount > 0 && (
+                <span className="absolute -top-1.5 -right-2.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white shadow-xs animate-pulse ring-2 ring-white">
+                  {unreadChatCount > 9 ? '9+' : unreadChatCount}
+                </span>
+              )}
+            </div>
+            <span className="hidden sm:inline">Messages</span>
+          </NavLink>
+
           <NavLink to="/profile" className={navLinkClass}>
             <UserIcon className="h-4 w-4" />
             <span className="hidden sm:inline">Profile</span>
@@ -133,13 +238,24 @@ export function Navbar() {
             {showDropdown && (
               <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-xl border border-slate-200 bg-white p-2 shadow-xl z-50 animate-in fade-in zoom-in-95 duration-100">
                 <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
-                  <h3 className="font-semibold text-slate-800 text-sm">
-                    Notifications
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-slate-800 text-sm">
+                      Notifications
+                    </h3>
+                    {unreadCount > 0 && (
+                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+                        {unreadCount} new
+                      </span>
+                    )}
+                  </div>
                   {unreadCount > 0 && (
-                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700">
-                      {unreadCount} new
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void handleMarkAllAsRead()}
+                      className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                    >
+                      Mark all as read
+                    </button>
                   )}
                 </div>
 
@@ -149,48 +265,65 @@ export function Navbar() {
                       No recent notifications
                     </div>
                   ) : (
-                    notifData.notifications.map((item) => (
-                      <div
-                        key={item.id}
-                        onClick={() => {
-                          setShowDropdown(false);
-                          if (item.type === 'friend_request') {
-                            navigate('/friends');
-                          } else {
-                            navigate('/');
-                          }
-                        }}
-                        className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition cursor-pointer"
-                      >
-                        <div className="relative shrink-0">
-                          <Avatar
-                            name={item.actor.name}
-                            avatarUrl={item.actor.avatarUrl}
-                            size="sm"
-                          />
-                          <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-xs border border-slate-100">
-                            {item.type === 'friend_request' && (
-                              <UserPlus className="h-2.5 w-2.5 text-blue-600" />
-                            )}
-                            {item.type === 'like' && (
-                              <Heart className="h-2.5 w-2.5 text-rose-500 fill-rose-500" />
-                            )}
-                            {item.type === 'comment' && (
-                              <MessageCircle className="h-2.5 w-2.5 text-emerald-600" />
-                            )}
-                          </span>
-                        </div>
+                    notifData.notifications.map((item) => {
+                      const isUnread = !item.isRead;
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => handleNotificationClick(item)}
+                          className={`flex items-start gap-3 p-2.5 rounded-lg transition cursor-pointer ${
+                            isUnread
+                              ? 'bg-blue-50/70 hover:bg-blue-100/60'
+                              : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="relative shrink-0">
+                            <Avatar
+                              name={item.actor.name}
+                              avatarUrl={item.actor.avatarUrl}
+                              size="sm"
+                            />
+                            <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-xs border border-slate-100">
+                              {item.type === 'friend_request' && (
+                                <UserPlus className="h-2.5 w-2.5 text-blue-600" />
+                              )}
+                              {item.type === 'like' && (
+                                <Heart className="h-2.5 w-2.5 text-rose-500 fill-rose-500" />
+                              )}
+                              {item.type === 'comment' && (
+                                <MessageCircle className="h-2.5 w-2.5 text-emerald-600" />
+                              )}
+                              {item.type === 'reply' && (
+                                <CornerDownRight className="h-2.5 w-2.5 text-indigo-600" />
+                              )}
+                            </span>
+                          </div>
 
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs text-slate-700 leading-snug">
-                            {item.message}
-                          </p>
-                          <span className="text-[10px] text-slate-400">
-                            {formatRelativeTime(item.createdAt)}
-                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p
+                              className={`text-xs leading-snug ${
+                                isUnread
+                                  ? 'font-semibold text-slate-900'
+                                  : 'text-slate-700'
+                              }`}
+                            >
+                              {item.message}
+                            </p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <span className="text-[10px] text-slate-400">
+                                {formatRelativeTime(item.createdAt)}
+                              </span>
+                              {isUnread && (
+                                <span
+                                  className="h-1.5 w-1.5 rounded-full bg-blue-600"
+                                  title="Unread"
+                                ></span>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>

@@ -6,13 +6,14 @@ import {
   type ChangeEvent,
   type FormEvent,
 } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import {
   Camera,
   Check,
   Globe,
   Mail,
   MapPin,
+  MessageSquare,
   Pencil,
   Upload,
   UserCheck,
@@ -348,10 +349,19 @@ export function ProfilePage() {
             ) : (
               <div>
                 {relation.type === 'friends' ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
-                    <UserCheck className="h-4 w-4" />
-                    Friends
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      to={`/messages/${profile.id}`}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition cursor-pointer shadow-xs"
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      Message
+                    </Link>
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3.5 py-2 text-sm font-semibold text-emerald-700">
+                      <UserCheck className="h-4 w-4" />
+                      Friends
+                    </span>
+                  </div>
                 ) : relation.type === 'outgoing' ? (
                   <span className="inline-flex items-center rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-600">
                     Request Sent

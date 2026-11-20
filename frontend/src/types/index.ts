@@ -28,6 +28,8 @@ export interface Post {
   imageUrl?: string;
   likesCount: number;
   commentsCount: number;
+  sharesCount?: number;
+  originalPost?: Post | null;
   isLikedByMe: boolean;
   createdAt: string;
   updatedAt: string;
@@ -36,8 +38,10 @@ export interface Post {
 export interface CommentItem {
   id: string;
   postId: string;
+  parentId?: string | null;
   author: PopulatedUser;
   content: string;
+  replies?: CommentItem[];
   createdAt: string;
   updatedAt: string;
 }

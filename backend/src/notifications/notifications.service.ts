@@ -5,10 +5,11 @@ import { Friendship, FRIENDSHIP_STATUS } from 'models/friendship';
 import { Post } from 'models/post';
 import { Like } from 'models/like';
 import { Comment } from 'models/comment';
+import { User } from 'models/user';
 
 export interface NotificationItem {
   id: string;
-  type: 'friend_request' | 'like' | 'comment';
+  type: 'friend_request' | 'like' | 'comment' | 'reply';
   message: string;
   actor: {
     id: string;
@@ -19,6 +20,7 @@ export interface NotificationItem {
     id: string;
     content: string;
   };
+  isRead?: boolean;
   createdAt: Date;
 }
 
@@ -33,6 +35,8 @@ export class NotificationsService {
     private readonly likeModel: Model<Like>,
     @InjectModel(Comment.name)
     private readonly commentModel: Model<Comment>,
+    @InjectModel(User.name)
+    private readonly userModel: Model<User>,
   ) {}
 
   async getNotifications(userId: string): Promise<{
@@ -41,6 +45,17 @@ export class NotificationsService {
     notifications: NotificationItem[];
   }> {
     const userObjectId = new Types.ObjectId(userId);
+
+    // 0. Fetch user's notification read history
+    const currentUser: any = await this.userModel
+      .findById(userObjectId)
+      .select('readNotificationIds lastReadNotificationAt')
+      .lean();
+
+    const readIdsSet = new Set<string>(currentUser?.readNotificationIds || []);
+    const lastReadDate = currentUser?.lastReadNotificationAt
+      ? new Date(currentUser.lastReadNotificationAt)
+      : null;
 
     // 1. Fetch pending incoming friend requests
     const pendingFriendRequests = await this.friendshipModel
@@ -77,11 +92,13 @@ export class NotificationsService {
         .limit(10)
         .lean();
 
-      // 4. Recent comments on the user's posts (exclude self-comments)
+      // 4. Recent top-level comments on the user's posts (exclude self-comments)
       recentComments = await this.commentModel
         .find({
           post: { $in: userPostIds },
           author: { $ne: userObjectId },
+          parentId: null,
+          isDeleted: false,
         })
         .populate('author', 'name avatarUrl')
         .populate('post', 'content')
@@ -90,7 +107,30 @@ export class NotificationsService {
         .lean();
     }
 
-    // 5. Transform into a unified notification feed
+    // 5. Recent replies to the user's comments
+    const userComments = await this.commentModel
+      .find({ author: userObjectId, isDeleted: false })
+      .select('_id content post')
+      .lean();
+
+    const userCommentIds = userComments.map((c) => c._id);
+    let recentReplies: any[] = [];
+
+    if (userCommentIds.length > 0) {
+      recentReplies = await this.commentModel
+        .find({
+          parentId: { $in: userCommentIds },
+          author: { $ne: userObjectId },
+          isDeleted: false,
+        })
+        .populate('author', 'name avatarUrl')
+        .populate('post', 'content')
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean();
+    }
+
+    // 6. Transform into a unified notification feed
     const items: NotificationItem[] = [];
 
     for (const req of pendingFriendRequests) {
@@ -113,7 +153,8 @@ export class NotificationsService {
     for (const lk of recentLikes) {
       const liker = lk.user as any;
       const post = lk.post as any;
-      if (liker) {
+      const postId = post?._id ? post._id.toString() : (lk.post ? lk.post.toString() : '');
+      if (liker && postId) {
         items.push({
           id: lk._id.toString(),
           type: 'like',
@@ -123,15 +164,13 @@ export class NotificationsService {
             name: liker.name || 'Someone',
             avatarUrl: liker.avatarUrl,
           },
-          post: post
-            ? {
-                id: post._id?.toString() || '',
-                content:
-                  post.content?.length > 40
-                    ? `${post.content.slice(0, 40)}...`
-                    : post.content || 'Photo post',
-              }
-            : undefined,
+          post: {
+            id: postId,
+            content:
+              post?.content?.length > 40
+                ? `${post.content.slice(0, 40)}...`
+                : post?.content || 'Photo post',
+          },
           createdAt: lk['createdAt'] || new Date(),
         });
       }
@@ -140,7 +179,8 @@ export class NotificationsService {
     for (const cmt of recentComments) {
       const commenter = cmt.author as any;
       const post = cmt.post as any;
-      if (commenter) {
+      const postId = post?._id ? post._id.toString() : (cmt.post ? cmt.post.toString() : '');
+      if (commenter && postId) {
         items.push({
           id: cmt._id.toString(),
           type: 'comment',
@@ -150,16 +190,49 @@ export class NotificationsService {
             name: commenter.name || 'Someone',
             avatarUrl: commenter.avatarUrl,
           },
-          post: post
-            ? {
-                id: post._id?.toString() || '',
-                content:
-                  post.content?.length > 40
-                    ? `${post.content.slice(0, 40)}...`
-                    : post.content || 'Post',
-              }
-            : undefined,
+          post: {
+            id: postId,
+            content:
+              post?.content?.length > 40
+                ? `${post.content.slice(0, 40)}...`
+                : post?.content || 'Post',
+          },
           createdAt: cmt['createdAt'] || new Date(),
+        });
+      }
+    }
+
+    for (const rep of recentReplies) {
+      const replier = rep.author as any;
+      const post = rep.post as any;
+      const postId = post?._id ? post._id.toString() : (rep.post ? rep.post.toString() : '');
+      if (replier && postId) {
+        const parentComment = userComments.find(
+          (c) => c._id.toString() === rep.parentId?.toString(),
+        );
+        const parentPreview = parentComment?.content
+          ? parentComment.content.length > 20
+            ? `${parentComment.content.slice(0, 20)}...`
+            : parentComment.content
+          : 'your comment';
+
+        items.push({
+          id: rep._id.toString(),
+          type: 'reply',
+          message: `${replier.name} replied to "${parentPreview}": "${rep.content?.length > 30 ? rep.content.slice(0, 30) + '...' : rep.content}"`,
+          actor: {
+            id: replier._id?.toString() || '',
+            name: replier.name || 'Someone',
+            avatarUrl: replier.avatarUrl,
+          },
+          post: {
+            id: postId,
+            content:
+              post?.content?.length > 40
+                ? `${post.content.slice(0, 40)}...`
+                : post?.content || 'Post',
+          },
+          createdAt: rep['createdAt'] || new Date(),
         });
       }
     }
@@ -170,13 +243,37 @@ export class NotificationsService {
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
+    const formattedNotifications: NotificationItem[] = items.slice(0, 20).map((item) => {
+      const isRead =
+        readIdsSet.has(item.id) ||
+        (lastReadDate !== null && new Date(item.createdAt) <= lastReadDate);
+      return {
+        ...item,
+        isRead,
+      };
+    });
+
+    const unreadCount = formattedNotifications.filter((i) => !i.isRead).length;
     const friendRequestsCount = pendingFriendRequests.length;
-    const unreadCount = items.length;
 
     return {
       unreadCount,
       friendRequestsCount,
-      notifications: items.slice(0, 15),
+      notifications: formattedNotifications,
     };
+  }
+
+  async markAsRead(userId: string, notificationId: string) {
+    await this.userModel.findByIdAndUpdate(userId, {
+      $addToSet: { readNotificationIds: notificationId },
+    });
+    return { success: true };
+  }
+
+  async markAllAsRead(userId: string) {
+    await this.userModel.findByIdAndUpdate(userId, {
+      lastReadNotificationAt: new Date(),
+    });
+    return { success: true };
   }
 }

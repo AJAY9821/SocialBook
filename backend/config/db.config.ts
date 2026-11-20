@@ -4,9 +4,13 @@ import {
 } from '@nestjs/mongoose';
 import { Injectable } from '@nestjs/common';
 import * as dotenv from 'dotenv';
+import * as path from 'path';
 import { CustomConfigService } from 'src/common/services';
 
 dotenv.config();
+dotenv.config({ path: path.join(process.cwd(), 'backend', '.env') });
+dotenv.config({ path: path.join(__dirname, '..', '.env') });
+dotenv.config({ path: path.join(__dirname, '..', '..', '.env') });
 
 @Injectable()
 export class DatabaseConfigService implements MongooseOptionsFactory {
@@ -19,18 +23,23 @@ export class DatabaseConfigService implements MongooseOptionsFactory {
       };
     }
 
-    const { username, password, host, port, database } =
-      CustomConfigService.PROPERTIES.mongoDBConfig;
+    const mongoDBConfig = CustomConfigService.PROPERTIES?.mongoDBConfig;
+    if (mongoDBConfig) {
+      const { username, password, host, port, database } = mongoDBConfig;
+      const isAtlas = host?.includes('mongodb.net');
+      const authPart = username && password ? `${username}:${password}@` : '';
 
-    const isAtlas = host?.includes('mongodb.net');
-    const authPart = username && password ? `${username}:${password}@` : '';
+      const mongodbConnectionUrl = isAtlas
+        ? `mongodb+srv://${authPart}${host}/${database}`
+        : `mongodb://${authPart}${host}${port ? ':' + port : ''}/${database}`;
 
-    const mongodbConnectionUrl = isAtlas
-      ? `mongodb+srv://${authPart}${host}/${database}`
-      : `mongodb://${authPart}${host}${port ? ':' + port : ''}/${database}`;
+      return {
+        uri: mongodbConnectionUrl,
+      };
+    }
 
     return {
-      uri: mongodbConnectionUrl,
+      uri: 'mongodb://localhost:27017/social_media_db',
     };
   }
 }
