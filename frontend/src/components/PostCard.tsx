@@ -8,20 +8,25 @@ import {
   Trash2,
   Check,
   Upload,
+  UserMinus,
   X,
 } from 'lucide-react';
 import { postsApi } from '../api/posts';
+import { friendsApi } from '../api/friends';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import type { Post } from '../types';
 import { Avatar } from './Avatar';
 import { CommentSection } from './CommentSection';
 import { ShareModal } from './ShareModal';
+import { ConfirmUnfriendModal } from './ConfirmUnfriendModal';
+import { LikesModal } from './LikesModal';
 
 interface PostCardProps {
   post: Post;
   onPostUpdated: (updated: Post) => void;
   onPostDeleted: (postId: string) => void;
+  onAuthorUnfriended?: (authorId: string) => void;
   defaultShowComments?: boolean;
 }
 
@@ -39,6 +44,7 @@ export function PostCard({
   post,
   onPostUpdated,
   onPostDeleted,
+  onAuthorUnfriended,
   defaultShowComments = false,
 }: PostCardProps) {
   const { user } = useAuth();
@@ -52,6 +58,10 @@ export function PostCard({
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [liking, setLiking] = useState(false);
+  const [unfriending, setUnfriending] = useState(false);
+  const [isUnfriended, setIsUnfriended] = useState(false);
+  const [showUnfriendModal, setShowUnfriendModal] = useState(false);
+  const [showLikesModal, setShowLikesModal] = useState(false);
   const [showComments, setShowComments] = useState(defaultShowComments);
   const [showShareModal, setShowShareModal] = useState(false);
   const [error, setError] = useState('');
@@ -138,6 +148,22 @@ export function PostCard({
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to delete post.'));
       setDeleting(false);
+    }
+  };
+
+  const handleUnfriendAuthor = async () => {
+    setError('');
+    setUnfriending(true);
+    try {
+      await friendsApi.unfriend(post.author._id);
+      setIsUnfriended(true);
+      setShowUnfriendModal(false);
+      window.dispatchEvent(new CustomEvent('friendship:updated'));
+      onAuthorUnfriended?.(post.author._id);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to unfriend user.'));
+    } finally {
+      setUnfriending(false);
     }
   };
 
@@ -232,6 +258,19 @@ export function PostCard({
               <Trash2 className="h-4 w-4" />
             </button>
           </div>
+        )}
+
+        {!isOwner && post.isAuthorFriend && !isUnfriended && (
+          <button
+            type="button"
+            disabled={unfriending}
+            onClick={() => setShowUnfriendModal(true)}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 shadow-2xs transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 cursor-pointer"
+            title={`Unfriend ${post.author.name}`}
+          >
+            <UserMinus className="h-3.5 w-3.5 text-slate-400" />
+            <span>{unfriending ? 'Removing...' : 'Unfriend'}</span>
+          </button>
         )}
       </div>
 
@@ -357,8 +396,49 @@ export function PostCard({
         </div>
       )}
 
+      {/* Engagement Summary Row (Likes count trigger & comments/shares) */}
+      {(post.likesCount > 0 || post.commentsCount > 0 || (post.sharesCount || 0) > 0) && (
+        <div className="mt-3 flex items-center justify-between border-t border-slate-100 px-1 pt-2.5 pb-0.5 text-xs text-slate-500">
+          {post.likesCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowLikesModal(true)}
+              className="group flex items-center gap-1.5 transition hover:text-blue-600 hover:underline cursor-pointer"
+              title="See who liked this post"
+            >
+              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-white shadow-2xs">
+                <Heart className="h-2.5 w-2.5 fill-white text-white" />
+              </span>
+              <span className="font-medium text-slate-600 group-hover:text-blue-600">
+                {post.likesCount} {post.likesCount === 1 ? 'Like' : 'Likes'}
+              </span>
+            </button>
+          ) : (
+            <div />
+          )}
+
+          <div className="flex items-center gap-2 text-slate-400 font-medium">
+            {post.commentsCount > 0 && (
+              <span>
+                {post.commentsCount}{' '}
+                {post.commentsCount === 1 ? 'comment' : 'comments'}
+              </span>
+            )}
+            {(post.sharesCount || 0) > 0 && (
+              <>
+                {post.commentsCount > 0 && <span>·</span>}
+                <span>
+                  {post.sharesCount}{' '}
+                  {(post.sharesCount || 0) === 1 ? 'share' : 'shares'}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Interactive Action Bar */}
-      <div className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-2.5">
+      <div className="mt-2.5 flex items-center gap-2 border-t border-slate-100 pt-2.5">
         <button
           type="button"
           onClick={handleToggleLike}
@@ -372,9 +452,7 @@ export function PostCard({
           <Heart
             className={`h-4 w-4 ${post.isLikedByMe ? 'fill-rose-500 text-rose-500' : ''}`}
           />
-          <span>
-            {post.likesCount} {post.likesCount === 1 ? 'Like' : 'Likes'}
-          </span>
+          <span>{post.isLikedByMe ? 'Liked' : 'Like'}</span>
         </button>
 
         <button
@@ -425,6 +503,22 @@ export function PostCard({
         onPostShared={() => {
           onPostUpdated({ ...post, sharesCount: (post.sharesCount || 0) + 1 });
         }}
+      />
+
+      {/* Confirm Unfriend Modal */}
+      <ConfirmUnfriendModal
+        isOpen={showUnfriendModal}
+        friendName={post.author?.name || 'this user'}
+        loading={unfriending}
+        onClose={() => setShowUnfriendModal(false)}
+        onConfirm={() => void handleUnfriendAuthor()}
+      />
+
+      {/* Likes Modal */}
+      <LikesModal
+        postId={post.id}
+        isOpen={showLikesModal}
+        onClose={() => setShowLikesModal(false)}
       />
     </article>
   );

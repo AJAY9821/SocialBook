@@ -566,6 +566,7 @@ export function ProfilePage() {
               post={post}
               onPostUpdated={handlePostUpdated}
               onPostDeleted={handlePostDeleted}
+              onAuthorUnfriended={() => setRelation({ type: 'none' })}
             />
           ))
         )}

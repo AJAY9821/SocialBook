@@ -59,12 +59,14 @@ export class PostsService {
       .lean();
 
     const authorIds: Types.ObjectId[] = [currentObjectId];
+    const friendIdSet = new Set<string>();
     for (const friendship of friendships) {
       const friendId =
         friendship.requester.toString() === userId
-          ? friendship.recipient
-          : friendship.requester;
-      authorIds.push(new Types.ObjectId(friendId.toString()));
+          ? friendship.recipient.toString()
+          : friendship.requester.toString();
+      friendIdSet.add(friendId);
+      authorIds.push(new Types.ObjectId(friendId));
     }
 
     const filter = {
@@ -92,9 +94,16 @@ export class PostsService {
     return {
       error: false,
       statusCode: HttpStatus.OK,
-      posts: posts.map((post) =>
-        this.formatPost(post, likedPostIds.has(post._id.toString())),
-      ),
+      posts: posts.map((post) => {
+        const postAuthorId = post.author?._id
+          ? post.author._id.toString()
+          : post.author?.toString() || '';
+        return this.formatPost(
+          post,
+          likedPostIds.has(post._id.toString()),
+          friendIdSet.has(postAuthorId),
+        );
+      }),
       pagination: {
         page: safePage,
         limit: safeLimit,
@@ -140,11 +149,34 @@ export class PostsService {
 
     const likedPostIds = await this.getLikedPostIdSet(currentUserId, posts);
 
+    const isTargetFriend =
+      targetUserId !== currentUserId
+        ? Boolean(
+            await this.friendshipModel.exists({
+              status: FRIENDSHIP_STATUS.ACCEPTED,
+              $or: [
+                {
+                  requester: new Types.ObjectId(currentUserId),
+                  recipient: new Types.ObjectId(targetUserId),
+                },
+                {
+                  requester: new Types.ObjectId(targetUserId),
+                  recipient: new Types.ObjectId(currentUserId),
+                },
+              ],
+            }),
+          )
+        : false;
+
     return {
       error: false,
       statusCode: HttpStatus.OK,
       posts: posts.map((post) =>
-        this.formatPost(post, likedPostIds.has(post._id.toString())),
+        this.formatPost(
+          post,
+          likedPostIds.has(post._id.toString()),
+          isTargetFriend,
+        ),
       ),
       pagination: {
         page: safePage,
@@ -178,10 +210,33 @@ export class PostsService {
       post: post._id,
     });
 
+    const postAuthorId = post.author?._id
+      ? post.author._id.toString()
+      : post.author?.toString() || '';
+
+    const isAuthorFriend =
+      postAuthorId && postAuthorId !== currentUserId
+        ? Boolean(
+            await this.friendshipModel.exists({
+              status: FRIENDSHIP_STATUS.ACCEPTED,
+              $or: [
+                {
+                  requester: new Types.ObjectId(currentUserId),
+                  recipient: new Types.ObjectId(postAuthorId),
+                },
+                {
+                  requester: new Types.ObjectId(postAuthorId),
+                  recipient: new Types.ObjectId(currentUserId),
+                },
+              ],
+            }),
+          )
+        : false;
+
     return {
       error: false,
       statusCode: HttpStatus.OK,
-      post: this.formatPost(post, Boolean(like)),
+      post: this.formatPost(post, Boolean(like), isAuthorFriend),
     };
   }
 
@@ -355,7 +410,7 @@ export class PostsService {
     return new Set(likes.map((like) => like.post.toString()));
   }
 
-  private formatPost(post: Post, isLikedByMe: boolean) {
+  private formatPost(post: Post, isLikedByMe: boolean, isAuthorFriend = false) {
     const postObj = post.toObject ? post.toObject() : (post as any);
     return {
       id: postObj._id.toString(),
@@ -369,6 +424,7 @@ export class PostsService {
         ? this.formatOriginalPost(postObj.originalPost)
         : null,
       isLikedByMe,
+      isAuthorFriend,
       createdAt: postObj.createdAt,
       updatedAt: postObj.updatedAt,
     };

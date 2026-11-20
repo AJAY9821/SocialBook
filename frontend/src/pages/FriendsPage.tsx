@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
   Check,
+  Loader2,
   MessageSquare,
   Search,
   UserCheck,
@@ -20,17 +21,49 @@ import type {
   User,
 } from '../types';
 import { Avatar } from '../components/Avatar';
+import { ConfirmUnfriendModal } from '../components/ConfirmUnfriendModal';
 
 type TabKey = 'friends' | 'requests' | 'find';
 
 export function FriendsPage() {
-  const [activeTab, setActiveTab] = useState<TabKey>('friends');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+
+  const getTargetTab = useCallback((): TabKey => {
+    const tabParam = searchParams.get('tab') as TabKey | null;
+    if (tabParam && ['friends', 'requests', 'find'].includes(tabParam)) {
+      return tabParam;
+    }
+    const stateTab = (location.state as any)?.tab as TabKey | null;
+    if (stateTab && ['friends', 'requests', 'find'].includes(stateTab)) {
+      return stateTab;
+    }
+    return 'friends';
+  }, [searchParams, location.state]);
+
+  const [activeTab, setActiveTab] = useState<TabKey>(getTargetTab);
+
+  // Sync tab whenever URL search params or route state changes (e.g. from notification click)
+  useEffect(() => {
+    const target = getTargetTab();
+    setActiveTab(target);
+  }, [getTargetTab, location.key]);
+
+  const handleTabClick = (key: TabKey) => {
+    setActiveTab(key);
+    setSearchParams({ tab: key });
+  };
+
   const [friends, setFriends] = useState<FriendItem[]>([]);
   const [incoming, setIncoming] = useState<IncomingFriendRequest[]>([]);
   const [outgoing, setOutgoing] = useState<OutgoingFriendRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
+  const [unfriendTarget, setUnfriendTarget] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
 
   // Find People search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -78,12 +111,45 @@ export function FriendsPage() {
     return map;
   }, [incoming]);
 
-  const handleSearch = async (e: FormEvent) => {
-    e.preventDefault();
+  const handleClearSearch = () => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setHasSearched(false);
+    setSearching(false);
+  };
+
+  // Real-time debounced search (typeahead / auto-suggest)
+  useEffect(() => {
     const q = searchQuery.trim();
     if (!q) {
       setSearchResults([]);
       setHasSearched(false);
+      setSearching(false);
+      return;
+    }
+
+    setSearching(true);
+    setHasSearched(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await usersApi.searchUsers(q);
+        setSearchResults(res.users);
+      } catch (err) {
+        setError(getErrorMessage(err, 'Failed to search users.'));
+      } finally {
+        setSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const handleSearch = async (e: FormEvent) => {
+    e.preventDefault();
+    const q = searchQuery.trim();
+    if (!q) {
+      handleClearSearch();
       return;
     }
 
@@ -162,14 +228,13 @@ export function FriendsPage() {
   };
 
   const handleUnfriend = async (friendId: string, friendName: string) => {
-    if (!window.confirm(`Remove ${friendName} from your friends list?`)) return;
-
     setError('');
     setStatusMsg('');
     setBusyId(friendId);
     try {
       await friendsApi.unfriend(friendId);
       setStatusMsg(`${friendName} removed from your friends.`);
+      setUnfriendTarget(null);
       await loadAllFriendData();
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to remove friend.'));
@@ -191,21 +256,21 @@ export function FriendsPage() {
       <div className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
         <button
           type="button"
-          onClick={() => setActiveTab('friends')}
+          onClick={() => handleTabClick('friends')}
           className={tabClass('friends')}
         >
           My Friends ({friends.length})
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('requests')}
+          onClick={() => handleTabClick('requests')}
           className={tabClass('requests')}
         >
           Requests {incoming.length > 0 ? `(${incoming.length})` : ''}
         </button>
         <button
           type="button"
-          onClick={() => setActiveTab('find')}
+          onClick={() => handleTabClick('find')}
           className={tabClass('find')}
         >
           Find People
@@ -281,7 +346,7 @@ export function FriendsPage() {
                     <button
                       type="button"
                       disabled={busyId === friend.id}
-                      onClick={() => void handleUnfriend(friend.id, friend.name)}
+                      onClick={() => setUnfriendTarget({ id: friend.id, name: friend.name })}
                       className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 cursor-pointer"
                     >
                       <UserMinus className="h-3.5 w-3.5" />
@@ -425,19 +490,34 @@ export function FriendsPage() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search people by name or email..."
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3.5 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-10 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
               />
+              <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                {searching && (
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                )}
+                {!searching && searchQuery && (
+                  <button
+                    type="button"
+                    onClick={handleClearSearch}
+                    className="rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition cursor-pointer"
+                    title="Clear search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
             <button
               type="submit"
-              disabled={searching}
+              disabled={searching || !searchQuery.trim()}
               className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
             >
-              {searching ? 'Searching...' : 'Search'}
+              Search
             </button>
           </form>
 
-          {searching ? (
+          {searching && searchResults.length === 0 ? (
             <p className="py-6 text-center text-sm text-slate-400">
               Searching users...
             </p>
@@ -521,6 +601,18 @@ export function FriendsPage() {
           )}
         </div>
       )}
+      {/* Confirm Unfriend Modal */}
+      <ConfirmUnfriendModal
+        isOpen={Boolean(unfriendTarget)}
+        friendName={unfriendTarget?.name || ''}
+        loading={busyId === unfriendTarget?.id}
+        onClose={() => setUnfriendTarget(null)}
+        onConfirm={() => {
+          if (unfriendTarget) {
+            void handleUnfriend(unfriendTarget.id, unfriendTarget.name);
+          }
+        }}
+      />
     </div>
   );
 }

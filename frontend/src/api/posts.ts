@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { CommentItem, Pagination, Post } from '../types';
+import type { CommentItem, Pagination, PopulatedUser, Post } from '../types';
 
 export interface CreatePostPayload {
   content: string;
@@ -105,6 +105,21 @@ export const postsApi = {
       msg: string;
       likesCount: number;
     }>(`/likes/${postId}`);
+    return data;
+  },
+
+  async getPostLikes(postId: string, page = 1, limit = 50) {
+    const { data } = await apiClient.get<{
+      error: boolean;
+      statusCode: number;
+      likesCount: number;
+      likes: {
+        id: string;
+        user: PopulatedUser;
+        createdAt: string;
+      }[];
+      pagination: Pagination;
+    }>(`/likes/${postId}`, { params: { page, limit } });
     return data;
   },
 

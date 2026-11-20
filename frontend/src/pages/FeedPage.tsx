@@ -51,6 +51,10 @@ export function FeedPage() {
     setPosts((prev) => prev.filter((p) => p.id !== postId));
   };
 
+  const handleAuthorUnfriended = (authorId: string) => {
+    setPosts((prev) => prev.filter((p) => p.author._id !== authorId));
+  };
+
   const hasMore = pagination ? pagination.page < pagination.totalPages : false;
 
   return (
@@ -88,6 +92,7 @@ export function FeedPage() {
               post={post}
               onPostUpdated={handlePostUpdated}
               onPostDeleted={handlePostDeleted}
+              onAuthorUnfriended={handleAuthorUnfriended}
             />
           ))}
 

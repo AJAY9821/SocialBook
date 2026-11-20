@@ -134,7 +134,9 @@ export function Navbar() {
     }
 
     if (item.type === 'friend_request') {
-      navigate('/friends');
+      navigate('/friends?tab=requests', {
+        state: { tab: 'requests', timestamp: Date.now() },
+      });
     } else if (item.post?.id) {
       const isCommentIntent = item.type === 'comment' || item.type === 'reply';
       if (isCommentIntent) {

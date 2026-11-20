@@ -31,6 +31,7 @@ export interface Post {
   sharesCount?: number;
   originalPost?: Post | null;
   isLikedByMe: boolean;
+  isAuthorFriend?: boolean;
   createdAt: string;
   updatedAt: string;
 }
