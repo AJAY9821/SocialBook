@@ -64,10 +64,41 @@ export function Navbar() {
     };
     window.addEventListener('chat:read', handleChatRead);
 
+    // Instant local listener: update friend requests badge immediately (0ms)
+    const handleFriendRequestsUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent<{ count?: number }>;
+      if (typeof customEvent.detail?.count === 'number') {
+        const nextCount = Math.max(0, customEvent.detail.count);
+        setNotifData((prev) => {
+          if (!prev) return null;
+          const diff = prev.friendRequestsCount - nextCount;
+          return {
+            ...prev,
+            friendRequestsCount: nextCount,
+            unreadCount: Math.max(0, prev.unreadCount - Math.max(0, diff)),
+          };
+        });
+      }
+      void fetchNotifications();
+    };
+    window.addEventListener('friend_requests:updated', handleFriendRequestsUpdated);
+
+    // General notifications refresh trigger
+    const handleNotificationsRefresh = () => {
+      void fetchNotifications();
+    };
+    window.addEventListener('notifications:refresh', handleNotificationsRefresh);
+
+    // Re-sync notifications whenever user focuses/returns to the browser tab
+    window.addEventListener('focus', handleNotificationsRefresh);
+
     return () => {
       clearInterval(chatInterval);
       clearInterval(notifInterval);
       window.removeEventListener('chat:read', handleChatRead);
+      window.removeEventListener('friend_requests:updated', handleFriendRequestsUpdated);
+      window.removeEventListener('notifications:refresh', handleNotificationsRefresh);
+      window.removeEventListener('focus', handleNotificationsRefresh);
     };
   }, [user]);
 

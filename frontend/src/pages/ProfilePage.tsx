@@ -223,9 +223,15 @@ export function ProfilePage() {
         setRelation({ type: 'outgoing' });
         setStatusMsg('Friend request sent!');
       } else if (relation.type === 'incoming') {
+        window.dispatchEvent(
+          new CustomEvent('friend_requests:updated', {
+            detail: { count: 0 },
+          }),
+        );
         await friendsApi.acceptRequest(relation.requestId);
         setRelation({ type: 'friends' });
         setStatusMsg('Friend request accepted!');
+        window.dispatchEvent(new CustomEvent('notifications:refresh'));
       }
     } catch (err) {
       setError(getErrorMessage(err, 'Action failed.'));

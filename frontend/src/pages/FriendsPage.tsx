@@ -84,6 +84,13 @@ export function FriendsPage() {
       setFriends(friendsRes.friends);
       setIncoming(incomingRes.requests);
       setOutgoing(outgoingRes.requests);
+
+      // Instantly synchronize navbar badge with authoritative incoming count
+      window.dispatchEvent(
+        new CustomEvent('friend_requests:updated', {
+          detail: { count: incomingRes.requests.length },
+        }),
+      );
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to load friends data.'));
     } finally {
@@ -186,12 +193,23 @@ export function FriendsPage() {
     setError('');
     setStatusMsg('');
     setBusyId(requestId);
+
+    // Optimistically update navbar badge immediately (0ms latency)
+    const nextCount = Math.max(0, incoming.length - 1);
+    window.dispatchEvent(
+      new CustomEvent('friend_requests:updated', {
+        detail: { count: nextCount },
+      }),
+    );
+
     try {
       await friendsApi.acceptRequest(requestId);
       setStatusMsg('Friend request accepted!');
+      window.dispatchEvent(new CustomEvent('notifications:refresh'));
       await loadAllFriendData();
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to accept request.'));
+      void loadAllFriendData();
     } finally {
       setBusyId(null);
     }
@@ -201,12 +219,23 @@ export function FriendsPage() {
     setError('');
     setStatusMsg('');
     setBusyId(requestId);
+
+    // Optimistically update navbar badge immediately (0ms latency)
+    const nextCount = Math.max(0, incoming.length - 1);
+    window.dispatchEvent(
+      new CustomEvent('friend_requests:updated', {
+        detail: { count: nextCount },
+      }),
+    );
+
     try {
       await friendsApi.rejectRequest(requestId);
       setStatusMsg('Friend request rejected.');
+      window.dispatchEvent(new CustomEvent('notifications:refresh'));
       await loadAllFriendData();
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to reject request.'));
+      void loadAllFriendData();
     } finally {
       setBusyId(null);
     }
