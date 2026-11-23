@@ -248,7 +248,8 @@ export function CommentSection({
       ) : (
         <div className="space-y-3">
           {comments.map((comment) => {
-            const isCommentAuthor = user?.id === comment.author?._id;
+            const commentUser = comment.user || comment.author;
+            const isCommentAuthor = user?.id === commentUser?._id;
             const canDelete = isCommentAuthor || user?.id === postAuthorId;
             const isEditing = editingId === comment.id;
             const isReplying = replyingToId === comment.id;
@@ -260,10 +261,10 @@ export function CommentSection({
               <div key={comment.id} className="group flex flex-col">
                 {/* Main Comment Row */}
                 <div className="flex items-start gap-2.5">
-                  <Link to={`/profile/${comment.author._id}`} className="mt-0.5 shrink-0">
+                  <Link to={`/profile/${commentUser._id}`} className="mt-0.5 shrink-0">
                     <Avatar
-                      name={comment.author.name}
-                      avatarUrl={comment.author.avatarUrl}
+                      name={commentUser.name}
+                      avatarUrl={commentUser.avatarUrl}
                       size="sm"
                     />
                   </Link>
@@ -273,10 +274,10 @@ export function CommentSection({
                     <div className="rounded-2xl bg-slate-100 px-3.5 py-2 inline-block max-w-full">
                       <div className="flex items-center justify-between gap-3">
                         <Link
-                          to={`/profile/${comment.author._id}`}
+                          to={`/profile/${commentUser._id}`}
                           className="text-xs font-semibold text-slate-900 hover:text-blue-600 hover:underline"
                         >
-                          {comment.author.name}
+                          {commentUser.name}
                         </Link>
 
                         {!isEditing && (isCommentAuthor || canDelete) && (
@@ -352,7 +353,7 @@ export function CommentSection({
                             setReplyText('');
                           } else {
                             setReplyingToId(comment.id);
-                            setReplyText(`@${comment.author.name} `);
+                            setReplyText(`@${commentUser.name} `);
                           }
                         }}
                         className="font-semibold text-slate-600 hover:text-blue-600 cursor-pointer transition"
@@ -397,7 +398,7 @@ export function CommentSection({
                             void handleAddReply(comment.id);
                           }
                         }}
-                        placeholder={`Reply to @${comment.author.name}...`}
+                        placeholder={`Reply to @${commentUser.name}...`}
                         className="w-full rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 pr-8 text-xs outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
                       />
                       <button
@@ -428,16 +429,17 @@ export function CommentSection({
                 {hasReplies && isThreadExpanded && (
                   <div className="ml-6 sm:ml-8 mt-2 space-y-2 border-l-2 border-slate-200 pl-3">
                     {replies.map((reply) => {
-                      const isReplyAuthor = user?.id === reply.author?._id;
+                      const replyUser = reply.user || reply.author;
+                      const isReplyAuthor = user?.id === replyUser?._id;
                       const canDeleteReply = isReplyAuthor || user?.id === postAuthorId;
                       const isEditingReply = editingId === reply.id;
 
                       return (
                         <div key={reply.id} className="group/reply flex items-start gap-2">
-                          <Link to={`/profile/${reply.author._id}`} className="mt-0.5 shrink-0">
+                          <Link to={`/profile/${replyUser._id}`} className="mt-0.5 shrink-0">
                             <Avatar
-                              name={reply.author.name}
-                              avatarUrl={reply.author.avatarUrl}
+                              name={replyUser.name}
+                              avatarUrl={replyUser.avatarUrl}
                               size="xs"
                             />
                           </Link>
@@ -447,10 +449,10 @@ export function CommentSection({
                             <div className="rounded-xl bg-slate-100 px-3 py-1.5 inline-block max-w-full">
                               <div className="flex items-center justify-between gap-2">
                                 <Link
-                                  to={`/profile/${reply.author._id}`}
+                                  to={`/profile/${replyUser._id}`}
                                   className="text-[11px] font-semibold text-slate-900 hover:text-blue-600 hover:underline"
                                 >
-                                  {reply.author.name}
+                                  {replyUser.name}
                                 </Link>
 
                                 {!isEditingReply && (isReplyAuthor || canDeleteReply) && (
@@ -522,7 +524,7 @@ export function CommentSection({
                                 type="button"
                                 onClick={() => {
                                   setReplyingToId(comment.id);
-                                  setReplyText(`@${reply.author.name} `);
+                                  setReplyText(`@${(reply.user || reply.author).name} `);
                                 }}
                                 className="font-semibold text-slate-600 hover:text-blue-600 cursor-pointer transition"
                               >

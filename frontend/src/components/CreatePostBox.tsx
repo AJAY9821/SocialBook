@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react';
-import { Send, Upload, X } from 'lucide-react';
+import { Image, Loader2, Send, Video, X } from 'lucide-react';
 import { postsApi } from '../api/posts';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -12,11 +12,15 @@ interface CreatePostBoxProps {
 
 export function CreatePostBox({ onPostCreated }: CreatePostBoxProps) {
   const { user } = useAuth();
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
 
   const [content, setContent] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [fileType, setFileType] = useState<'image' | 'video' | null>(null);
   const [filePreview, setFilePreview] = useState('');
+  const [videoDuration, setVideoDuration] = useState<number>(0);
+  const [probingVideo, setProbingVideo] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -25,13 +29,19 @@ export function CreatePostBox({ onPostCreated }: CreatePostBoxProps) {
       URL.revokeObjectURL(filePreview);
     }
     setSelectedFile(null);
+    setFileType(null);
     setFilePreview('');
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    setVideoDuration(0);
+    setError('');
+    if (imageInputRef.current) {
+      imageInputRef.current.value = '';
+    }
+    if (videoInputRef.current) {
+      videoInputRef.current.value = '';
     }
   };
 
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleImageChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -40,8 +50,8 @@ export function CreatePostBox({ onPostCreated }: CreatePostBoxProps) {
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Image must be 5 MB or smaller.');
+    if (file.size > 10 * 1024 * 1024) {
+      setError('Image must be 10 MB or smaller.');
       return;
     }
 
@@ -49,13 +59,90 @@ export function CreatePostBox({ onPostCreated }: CreatePostBoxProps) {
     if (filePreview) {
       URL.revokeObjectURL(filePreview);
     }
+
+    // Mutually exclusive: selecting an image replaces any video
+    if (videoInputRef.current) {
+      videoInputRef.current.value = '';
+    }
+
     setSelectedFile(file);
+    setFileType('image');
+    setVideoDuration(0);
     setFilePreview(URL.createObjectURL(file));
+  };
+
+  const probeVideoDuration = (file: File): Promise<number> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      const objUrl = URL.createObjectURL(file);
+      video.src = objUrl;
+
+      video.onloadedmetadata = () => {
+        URL.revokeObjectURL(objUrl);
+        resolve(Math.round(video.duration));
+      };
+
+      video.onerror = () => {
+        URL.revokeObjectURL(objUrl);
+        reject(new Error('Could not read video metadata. Please ensure the file is a valid video.'));
+      };
+    });
+  };
+
+  const handleVideoChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowedMimes = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska'];
+    if (!allowedMimes.includes(file.type) && !file.type.startsWith('video/')) {
+      setError('Please select a valid video file (MP4, WebM, MOV).');
+      return;
+    }
+
+    // Maximum 50 MB file size limit
+    if (file.size > 50 * 1024 * 1024) {
+      setError('Video file size exceeds the 50 MB limit.');
+      return;
+    }
+
+    setError('');
+    setProbingVideo(true);
+
+    try {
+      const duration = await probeVideoDuration(file);
+
+      // Facebook standard reel/clip limit: max 120 seconds (2 minutes)
+      if (duration > 120) {
+        setError(`Video exceeds the maximum duration limit of 2 minutes (120s). Selected video is ${duration}s.`);
+        if (videoInputRef.current) videoInputRef.current.value = '';
+        return;
+      }
+
+      if (filePreview) {
+        URL.revokeObjectURL(filePreview);
+      }
+
+      // Mutually exclusive: selecting a video replaces any image
+      if (imageInputRef.current) {
+        imageInputRef.current.value = '';
+      }
+
+      setSelectedFile(file);
+      setFileType('video');
+      setVideoDuration(duration);
+      setFilePreview(URL.createObjectURL(file));
+    } catch (err: any) {
+      setError(err?.message || 'Failed to validate video file.');
+      if (videoInputRef.current) videoInputRef.current.value = '';
+    } finally {
+      setProbingVideo(false);
+    }
   };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!content.trim()) return;
+    if (!content.trim() || probingVideo) return;
 
     setError('');
     setSubmitting(true);
@@ -63,7 +150,10 @@ export function CreatePostBox({ onPostCreated }: CreatePostBoxProps) {
     try {
       const res = await postsApi.createPost({
         content: content.trim(),
-        ...(selectedFile ? { image: selectedFile } : {}),
+        ...(fileType === 'image' && selectedFile ? { image: selectedFile } : {}),
+        ...(fileType === 'video' && selectedFile
+          ? { video: selectedFile, videoDuration }
+          : {}),
       });
       onPostCreated(res.post);
 
@@ -74,6 +164,12 @@ export function CreatePostBox({ onPostCreated }: CreatePostBoxProps) {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const formatDuration = (sec: number) => {
+    const mins = Math.floor(sec / 60);
+    const remaining = sec % 60;
+    return `${mins}:${String(remaining).padStart(2, '0')}`;
   };
 
   return (
@@ -90,35 +186,60 @@ export function CreatePostBox({ onPostCreated }: CreatePostBoxProps) {
           />
         </div>
 
-        {/* Hidden native file input */}
+        {/* Hidden native file inputs */}
         <input
-          ref={fileInputRef}
+          ref={imageInputRef}
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"
-          onChange={handleFileChange}
+          onChange={handleImageChange}
+          className="hidden"
+        />
+        <input
+          ref={videoInputRef}
+          type="file"
+          accept="video/mp4,video/webm,video/quicktime"
+          onChange={handleVideoChange}
           className="hidden"
         />
 
-        {/* Live preview for browsed image */}
+        {/* Live preview for selected media */}
         {filePreview && (
           <div className="relative mt-3 pl-13">
-            <img
-              src={filePreview}
-              alt="Selected preview"
-              className="max-h-64 w-full rounded-xl border border-slate-200 object-cover"
-            />
+            {fileType === 'image' ? (
+              <img
+                src={filePreview}
+                alt="Selected preview"
+                className="max-h-64 w-full rounded-xl border border-slate-200 object-cover"
+              />
+            ) : (
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-black">
+                <video
+                  src={filePreview}
+                  controls
+                  playsInline
+                  className="max-h-64 w-full object-contain"
+                />
+              </div>
+            )}
+
             <button
               type="button"
               onClick={clearFile}
-              className="absolute right-2 top-2 rounded-full bg-slate-900/75 p-1.5 text-white transition hover:bg-slate-900 cursor-pointer"
-              aria-label="Remove selected photo"
+              className="absolute right-2 top-2 rounded-full bg-slate-900/75 p-1.5 text-white transition hover:bg-slate-900 cursor-pointer z-10"
+              aria-label="Remove selected media"
             >
               <X className="h-4 w-4" />
             </button>
+
             {selectedFile && (
-              <p className="mt-1 text-xs text-slate-500">
-                Selected file: {selectedFile.name}
-              </p>
+              <div className="mt-1.5 flex items-center justify-between text-xs text-slate-500">
+                <p className="truncate">Selected {fileType}: {selectedFile.name}</p>
+                {fileType === 'video' && videoDuration > 0 && (
+                  <span className="shrink-0 font-medium text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+                    ⏱ {formatDuration(videoDuration)} / 2:00
+                  </span>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -130,18 +251,42 @@ export function CreatePostBox({ onPostCreated }: CreatePostBoxProps) {
         )}
 
         <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 cursor-pointer"
-          >
-            <Upload className="h-4 w-4 text-emerald-600" />
-            <span>Browse Photo</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition cursor-pointer ${
+                fileType === 'image'
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              <Image className="h-4 w-4 text-emerald-600" />
+              <span>Photo</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={probingVideo}
+              onClick={() => videoInputRef.current?.click()}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition cursor-pointer disabled:opacity-50 ${
+                fileType === 'video'
+                  ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              {probingVideo ? (
+                <Loader2 className="h-4 w-4 animate-spin text-purple-600" />
+              ) : (
+                <Video className="h-4 w-4 text-purple-600" />
+              )}
+              <span>{probingVideo ? 'Checking...' : 'Video'}</span>
+            </button>
+          </div>
 
           <button
             type="submit"
-            disabled={submitting || !content.trim()}
+            disabled={submitting || !content.trim() || probingVideo}
             className="flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
           >
             <Send className="h-4 w-4" />

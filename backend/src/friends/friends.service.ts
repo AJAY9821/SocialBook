@@ -10,6 +10,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { FRIENDSHIP_STATUS, Friendship } from 'models/friendship';
 import { User } from 'models/user';
+import { BlocksService } from 'src/blocks/blocks.service';
 
 @Injectable()
 export class FriendsService {
@@ -18,6 +19,7 @@ export class FriendsService {
     private readonly friendshipModel: Model<Friendship>,
     @InjectModel(User.name)
     private readonly userModel: Model<User>,
+    private readonly blocksService: BlocksService,
   ) {}
 
   async sendFriendRequest(requesterId: string, recipientId: string) {
@@ -38,6 +40,12 @@ export class FriendsService {
 
     if (!recipient) {
       throw new NotFoundException('Recipient user not found.');
+    }
+
+    if (await this.blocksService.isBlocked(requesterId, recipientId)) {
+      throw new BadRequestException(
+        'You cannot send a friend request to this user.',
+      );
     }
 
     const requesterObjectId = new Types.ObjectId(requesterId);
@@ -255,6 +263,8 @@ export class FriendsService {
 
   async getFriendsList(currentUserId: string) {
     const currentObjectId = new Types.ObjectId(currentUserId);
+    const blockedUserIds = await this.blocksService.getBlockedUserIds(currentUserId);
+    const blockedSet = new Set(blockedUserIds.map((id) => id.toString()));
 
     const friendships = await this.friendshipModel
       .find({
@@ -266,7 +276,14 @@ export class FriendsService {
       .populate('recipient', 'name email avatarUrl bio location')
       .exec();
 
-    const friends = friendships.map((friendship) => {
+    const friends = friendships
+      .filter((friendship) => {
+        const obj: any = friendship.toObject();
+        const isRequester = obj.requester._id.toString() === currentUserId;
+        const friend = isRequester ? obj.recipient : obj.requester;
+        return !blockedSet.has(friend._id.toString());
+      })
+      .map((friendship) => {
       const obj: any = friendship.toObject();
       const isRequester = obj.requester._id.toString() === currentUserId;
       const friend = isRequester ? obj.recipient : obj.requester;

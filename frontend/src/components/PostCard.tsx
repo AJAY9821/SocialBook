@@ -6,6 +6,7 @@ import {
   Pencil,
   Repeat2,
   Trash2,
+  ThumbsUp,
   Check,
   Upload,
   UserMinus,
@@ -15,12 +16,13 @@ import { postsApi } from '../api/posts';
 import { friendsApi } from '../api/friends';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import type { Post } from '../types';
+import type { Post, ReactionType } from '../types';
 import { Avatar } from './Avatar';
 import { CommentSection } from './CommentSection';
 import { ShareModal } from './ShareModal';
 import { ConfirmUnfriendModal } from './ConfirmUnfriendModal';
 import { LikesModal } from './LikesModal';
+import { ReactionTray, REACTIONS_CONFIG } from './ReactionTray';
 
 interface PostCardProps {
   post: Post;
@@ -48,7 +50,8 @@ export function PostCard({
   defaultShowComments = false,
 }: PostCardProps) {
   const { user } = useAuth();
-  const isOwner = user?.id === post.author?._id;
+  const postUser = post.user || post.author;
+  const isOwner = user?.id === postUser?._id;
   const editFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
@@ -62,6 +65,8 @@ export function PostCard({
   const [isUnfriended, setIsUnfriended] = useState(false);
   const [showUnfriendModal, setShowUnfriendModal] = useState(false);
   const [showLikesModal, setShowLikesModal] = useState(false);
+  const [showReactionTray, setShowReactionTray] = useState(false);
+  const hoverTimerRef = useRef<any>(null);
   const [showComments, setShowComments] = useState(defaultShowComments);
   const [showShareModal, setShowShareModal] = useState(false);
   const [error, setError] = useState('');
@@ -99,12 +104,40 @@ export function PostCard({
   const handleEditFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      setError('Please select a valid image file (JPG, PNG, WEBP, GIF).');
+    const isVideo = file.type.startsWith('video/');
+    const isImage = file.type.startsWith('image/');
+    if (!isImage && !isVideo) {
+      setError('Please select a valid image (JPG, PNG, WEBP, GIF) or video (MP4, WebM, MOV).');
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setError('Image must be 5 MB or smaller.');
+    if (isVideo && file.size > 50 * 1024 * 1024) {
+      setError('Video must be 50 MB or smaller.');
+      return;
+    }
+    if (isImage && file.size > 10 * 1024 * 1024) {
+      setError('Image must be 10 MB or smaller.');
+      return;
+    }
+    if (isVideo) {
+      const tempVideo = document.createElement('video');
+      tempVideo.preload = 'metadata';
+      const objUrl = URL.createObjectURL(file);
+      tempVideo.src = objUrl;
+      tempVideo.onloadedmetadata = () => {
+        URL.revokeObjectURL(objUrl);
+        if (tempVideo.duration > 120) {
+          setError(`Video exceeds 2 minutes limit (${Math.round(tempVideo.duration)}s).`);
+          return;
+        }
+        setError('');
+        if (editFilePreview) URL.revokeObjectURL(editFilePreview);
+        setEditFile(file);
+        setEditFilePreview(URL.createObjectURL(file));
+      };
+      tempVideo.onerror = () => {
+        URL.revokeObjectURL(objUrl);
+        setError('Could not read video metadata. Please select a valid video file.');
+      };
       return;
     }
     setError('');
@@ -119,10 +152,15 @@ export function PostCard({
 
     setError('');
     setSaving(true);
+    const isVideo = editFile?.type.startsWith('video/');
     try {
       const res = await postsApi.updatePost(post.id, {
         content: editContent.trim(),
-        ...(editFile ? { image: editFile } : {}),
+        ...(editFile
+          ? isVideo
+            ? { video: editFile }
+            : { image: editFile }
+          : {}),
       });
       onPostUpdated(res.post);
       clearEditFile();
@@ -155,11 +193,11 @@ export function PostCard({
     setError('');
     setUnfriending(true);
     try {
-      await friendsApi.unfriend(post.author._id);
+      await friendsApi.unfriend(postUser._id);
       setIsUnfriended(true);
       setShowUnfriendModal(false);
       window.dispatchEvent(new CustomEvent('friendship:updated'));
-      onAuthorUnfriended?.(post.author._id);
+      onAuthorUnfriended?.(postUser._id);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to unfriend user.'));
     } finally {
@@ -167,31 +205,56 @@ export function PostCard({
     }
   };
 
-  const handleToggleLike = async () => {
+  const handleSelectReaction = async (reaction: ReactionType) => {
+    setShowReactionTray(false);
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
     if (liking) return;
+
     setError('');
     setLiking(true);
 
+    const wasLiked = post.isLikedByMe;
+    const isSame = post.myReaction === reaction;
+    const nextLiked = !isSame;
+    const nextReaction = isSame ? null : reaction;
+    const delta = isSame ? -1 : (wasLiked ? 0 : 1);
+    const nextCount = Math.max(0, post.likesCount + delta);
+
+    // Optimistic UI update
+    onPostUpdated({
+      ...post,
+      isLikedByMe: nextLiked,
+      myReaction: nextReaction,
+      likesCount: nextCount,
+    });
+
     try {
-      if (post.isLikedByMe) {
-        const res = await postsApi.unlikePost(post.id);
-        onPostUpdated({
-          ...post,
-          isLikedByMe: false,
-          likesCount: res.likesCount,
-        });
-      } else {
-        const res = await postsApi.likePost(post.id);
-        onPostUpdated({
-          ...post,
-          isLikedByMe: true,
-          likesCount: res.likesCount,
-        });
-      }
+      const res = await postsApi.reactToPost(post.id, reaction);
+      onPostUpdated({
+        ...post,
+        isLikedByMe: res.isLikedByMe,
+        myReaction: res.myReaction,
+        likesCount: res.likesCount,
+      });
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to update like.'));
+      setError(getErrorMessage(err, 'Failed to update reaction.'));
+      // Rollback to original
+      onPostUpdated(post);
     } finally {
       setLiking(false);
+    }
+  };
+
+  const handleToggleLike = async () => {
+    if (liking) return;
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+
+    if (post.isLikedByMe) {
+      // Unreact (toggling off existing reaction)
+      await handleSelectReaction(post.myReaction || 'like');
+    } else {
+      // Default quick click is 👍 'like'
+      await handleSelectReaction('like');
     }
   };
 
@@ -208,25 +271,28 @@ export function PostCard({
       {post.originalPost && (
         <div className="mb-2.5 flex items-center gap-1.5 text-xs font-semibold text-slate-500">
           <Repeat2 className="h-3.5 w-3.5 text-blue-600" />
-          <span>Reposted from {post.originalPost.author?.name}</span>
+          <span>
+            Reposted from{' '}
+            {(post.originalPost.user || post.originalPost.author)?.name}
+          </span>
         </div>
       )}
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link to={`/profile/${post.author._id}`}>
+          <Link to={`/profile/${postUser._id}`}>
             <Avatar
-              name={post.author.name}
-              avatarUrl={post.author.avatarUrl}
+              name={postUser.name}
+              avatarUrl={postUser.avatarUrl}
               size="md"
             />
           </Link>
           <div>
             <Link
-              to={`/profile/${post.author._id}`}
+              to={`/profile/${postUser._id}`}
               className="text-sm font-semibold text-slate-900 hover:text-blue-600 hover:underline"
             >
-              {post.author.name}
+              {postUser.name}
             </Link>
             <p className="text-xs text-slate-500">
               {formatDate(post.createdAt)}
@@ -266,7 +332,7 @@ export function PostCard({
             disabled={unfriending}
             onClick={() => setShowUnfriendModal(true)}
             className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 shadow-2xs transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 cursor-pointer"
-            title={`Unfriend ${post.author.name}`}
+            title={`Unfriend ${postUser.name}`}
           >
             <UserMinus className="h-3.5 w-3.5 text-slate-400" />
             <span>{unfriending ? 'Removing...' : 'Unfriend'}</span>
@@ -293,18 +359,44 @@ export function PostCard({
           <input
             ref={editFileInputRef}
             type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
+            accept="image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/quicktime"
             onChange={handleEditFileChange}
             className="hidden"
           />
 
-          {(editFilePreview || post.imageUrl) && (
+          {editFilePreview ? (
+            editFile?.type.startsWith('video/') ? (
+              <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-black">
+                <video
+                  src={editFilePreview}
+                  controls
+                  playsInline
+                  className="max-h-56 w-full object-contain"
+                />
+              </div>
+            ) : (
+              <img
+                src={editFilePreview}
+                alt="Post preview"
+                className="max-h-56 w-full rounded-xl border border-slate-200 object-cover"
+              />
+            )
+          ) : post.mediaType === 'video' || post.videoUrl ? (
+            <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-black">
+              <video
+                src={post.videoUrl}
+                controls
+                playsInline
+                className="max-h-56 w-full object-contain"
+              />
+            </div>
+          ) : post.imageUrl ? (
             <img
-              src={editFilePreview || post.imageUrl}
+              src={post.imageUrl}
               alt="Post preview"
               className="max-h-56 w-full rounded-xl border border-slate-200 object-cover"
             />
-          )}
+          ) : null}
 
           <div className="flex items-center justify-between gap-2">
             <button
@@ -313,7 +405,7 @@ export function PostCard({
               className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 cursor-pointer"
             >
               <Upload className="h-3.5 w-3.5 text-emerald-600" />
-              {post.imageUrl || editFile ? 'Change Photo' : 'Browse Photo'}
+              {post.imageUrl || post.videoUrl || editFile ? 'Change Media' : 'Add Media'}
             </button>
 
             <div className="flex items-center gap-2">
@@ -344,31 +436,54 @@ export function PostCard({
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
             {post.content}
           </p>
-          {post.imageUrl && (
+          {post.mediaType === 'video' || post.videoUrl ? (
+            <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-black">
+              <video
+                src={post.videoUrl}
+                controls
+                playsInline
+                preload="metadata"
+                className="max-h-[500px] w-full object-contain"
+              />
+            </div>
+          ) : post.imageUrl ? (
             <img
               src={post.imageUrl}
               alt="Post attachment"
               className="mt-3 max-h-96 w-full rounded-xl border border-slate-100 object-cover"
             />
-          )}
+          ) : null}
 
           {/* Embedded Original Post if this is a repost */}
           {post.originalPost && (
             <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 transition hover:bg-slate-100/50">
               <div className="flex items-center gap-2.5">
-                <Link to={`/profile/${post.originalPost.author?._id}`}>
+                <Link
+                  to={`/profile/${
+                    (post.originalPost.user || post.originalPost.author)?._id
+                  }`}
+                >
                   <Avatar
-                    name={post.originalPost.author?.name}
-                    avatarUrl={post.originalPost.author?.avatarUrl}
+                    name={
+                      (post.originalPost.user || post.originalPost.author)?.name
+                    }
+                    avatarUrl={
+                      (post.originalPost.user || post.originalPost.author)
+                        ?.avatarUrl
+                    }
                     size="sm"
                   />
                 </Link>
                 <div>
                   <Link
-                    to={`/profile/${post.originalPost.author?._id}`}
+                    to={`/profile/${
+                      (post.originalPost.user || post.originalPost.author)?._id
+                    }`}
                     className="text-xs font-bold text-slate-800 hover:text-blue-600 hover:underline leading-tight"
                   >
-                    {post.originalPost.author?.name}
+                    {
+                      (post.originalPost.user || post.originalPost.author)?.name
+                    }
                   </Link>
                   <p className="text-[10px] text-slate-400">
                     {formatDate(post.originalPost.createdAt)}
@@ -382,7 +497,17 @@ export function PostCard({
                 </p>
               )}
 
-              {post.originalPost.imageUrl && (
+              {post.originalPost.mediaType === 'video' || post.originalPost.videoUrl ? (
+                <div className="mt-2.5 overflow-hidden rounded-lg border border-slate-200 bg-black">
+                  <video
+                    src={post.originalPost.videoUrl}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="max-h-72 w-full object-contain"
+                  />
+                </div>
+              ) : post.originalPost.imageUrl ? (
                 <Link to={`/posts/${post.originalPost.id}`}>
                   <img
                     src={post.originalPost.imageUrl}
@@ -390,27 +515,43 @@ export function PostCard({
                     className="mt-2.5 max-h-72 w-full rounded-lg border border-slate-200 object-cover"
                   />
                 </Link>
-              )}
+              ) : null}
             </div>
           )}
         </div>
       )}
 
-      {/* Engagement Summary Row (Likes count trigger & comments/shares) */}
+      {/* Engagement Summary Row (Reactions count trigger & comments/shares) */}
       {(post.likesCount > 0 || post.commentsCount > 0 || (post.sharesCount || 0) > 0) && (
         <div className="mt-3 flex items-center justify-between border-t border-slate-100 px-1 pt-2.5 pb-0.5 text-xs text-slate-500">
           {post.likesCount > 0 ? (
             <button
               type="button"
               onClick={() => setShowLikesModal(true)}
-              className="group flex items-center gap-1.5 transition hover:text-blue-600 hover:underline cursor-pointer"
-              title="See who liked this post"
+              className="group flex items-center gap-1.5 transition hover:text-blue-600 cursor-pointer"
+              title="See who reacted to this post"
             >
-              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-white shadow-2xs">
-                <Heart className="h-2.5 w-2.5 fill-white text-white" />
-              </span>
-              <span className="font-medium text-slate-600 group-hover:text-blue-600">
-                {post.likesCount} {post.likesCount === 1 ? 'Like' : 'Likes'}
+              <div className="flex -space-x-1 items-center">
+                {(post.topReactions && post.topReactions.length > 0
+                  ? post.topReactions
+                  : ['like']
+                ).map((type, idx) => {
+                  const conf =
+                    REACTIONS_CONFIG[type as ReactionType] ||
+                    REACTIONS_CONFIG.like;
+                  return (
+                    <span
+                      key={type}
+                      style={{ zIndex: 3 - idx }}
+                      className={`flex h-4.5 w-4.5 items-center justify-center rounded-full text-[11px] shadow-2xs ring-1.5 ring-white select-none ${conf.badgeBg}`}
+                    >
+                      <span className="leading-none">{conf.emoji}</span>
+                    </span>
+                  );
+                })}
+              </div>
+              <span className="font-medium text-slate-600 group-hover:text-blue-600 hover:underline">
+                {post.likesCount} {post.likesCount === 1 ? 'Reaction' : 'Reactions'}
               </span>
             </button>
           ) : (
@@ -439,21 +580,70 @@ export function PostCard({
 
       {/* Interactive Action Bar */}
       <div className="mt-2.5 flex items-center gap-2 border-t border-slate-100 pt-2.5">
-        <button
-          type="button"
-          onClick={handleToggleLike}
-          disabled={liking}
-          className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-sm font-medium transition cursor-pointer ${
-            post.isLikedByMe
-              ? 'bg-rose-50 text-rose-600 hover:bg-rose-100'
-              : 'text-slate-600 hover:bg-slate-100'
-          }`}
+        <div
+          className="relative flex-1"
+          onMouseEnter={() => {
+            if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+            hoverTimerRef.current = setTimeout(() => {
+              setShowReactionTray(true);
+            }, 250);
+          }}
+          onMouseLeave={() => {
+            if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+            setShowReactionTray(false);
+          }}
         >
-          <Heart
-            className={`h-4 w-4 ${post.isLikedByMe ? 'fill-rose-500 text-rose-500' : ''}`}
+          {/* Floating Reaction Tray */}
+          <ReactionTray
+            isOpen={showReactionTray}
+            activeReaction={post.myReaction}
+            onSelect={(reaction) => void handleSelectReaction(reaction)}
+            onClose={() => setShowReactionTray(false)}
           />
-          <span>{post.isLikedByMe ? 'Liked' : 'Like'}</span>
-        </button>
+
+          {(() => {
+            const currentReactionConfig = post.myReaction
+              ? REACTIONS_CONFIG[post.myReaction]
+              : null;
+            return (
+              <button
+                type="button"
+                onClick={handleToggleLike}
+                disabled={liking}
+                onTouchStart={() => {
+                  if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                  hoverTimerRef.current = setTimeout(() => {
+                    setShowReactionTray(true);
+                  }, 400);
+                }}
+                onTouchEnd={() => {
+                  if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                }}
+                className={`flex w-full items-center justify-center gap-1.5 rounded-lg py-1.5 text-sm font-medium transition cursor-pointer select-none ${
+                  currentReactionConfig
+                    ? currentReactionConfig.bg
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                {currentReactionConfig ? (
+                  <>
+                    <span className="text-base leading-none">
+                      {currentReactionConfig.emoji}
+                    </span>
+                    <span className="font-semibold">
+                      {currentReactionConfig.label}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <ThumbsUp className="h-4 w-4" />
+                    <span>Like</span>
+                  </>
+                )}
+              </button>
+            );
+          })()}
+        </div>
 
         <button
           type="button"
@@ -489,7 +679,7 @@ export function PostCard({
         <div id={`comments-section-${post.id}`}>
           <CommentSection
             postId={post.id}
-            postAuthorId={post.author._id}
+            postAuthorId={postUser._id}
             onCountChange={handleCommentCountChange}
           />
         </div>
@@ -508,7 +698,7 @@ export function PostCard({
       {/* Confirm Unfriend Modal */}
       <ConfirmUnfriendModal
         isOpen={showUnfriendModal}
-        friendName={post.author?.name || 'this user'}
+        friendName={postUser?.name || 'this user'}
         loading={unfriending}
         onClose={() => setShowUnfriendModal(false)}
         onConfirm={() => void handleUnfriendAuthor()}

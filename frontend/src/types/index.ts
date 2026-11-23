@@ -11,6 +11,19 @@ export interface User {
   isAccountCompleted: boolean;
   isDeleted: boolean;
   role: 'admin' | 'user';
+  isBlockedByMe?: boolean;
+  isBlockedByOther?: boolean;
+  isBlocked?: boolean;
+}
+
+export interface BlockedUserItem {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  bio?: string;
+  location?: string;
+  blockedAt: string;
 }
 
 export interface PopulatedUser {
@@ -21,17 +34,32 @@ export interface PopulatedUser {
   bio?: string;
 }
 
+export type ReactionType =
+  | 'like'
+  | 'love'
+  | 'haha'
+  | 'wow'
+  | 'sad'
+  | 'angry';
+
 export interface Post {
   id: string;
-  author: PopulatedUser;
+  user: PopulatedUser;
+  author: PopulatedUser; // Legacy alias for backward compatibility
   content: string;
   imageUrl?: string;
+  videoUrl?: string;
+  mediaType?: 'text' | 'image' | 'video';
+  videoDuration?: number;
   likesCount: number;
   commentsCount: number;
   sharesCount?: number;
   originalPost?: Post | null;
   isLikedByMe: boolean;
+  myReaction?: ReactionType | null;
+  topReactions?: ReactionType[];
   isAuthorFriend?: boolean;
+  isFriend?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -39,8 +67,10 @@ export interface Post {
 export interface CommentItem {
   id: string;
   postId: string;
-  parentId?: string | null;
-  author: PopulatedUser;
+  parentComment?: string | null;
+  parentId?: string | null; // Legacy alias for backward compatibility
+  user: PopulatedUser;
+  author: PopulatedUser; // Legacy alias for backward compatibility
   content: string;
   replies?: CommentItem[];
   createdAt: string;
@@ -80,3 +110,56 @@ export interface FriendItem {
     location?: string;
   };
 }
+
+export type StoryMediaType = 'image' | 'video' | 'text';
+export type StoryAudience = 'all' | 'close_friends' | 'hide_from';
+
+export interface StoryItem {
+  id: string;
+  userId: string;
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+    avatarUrl?: string;
+  };
+  mediaType: StoryMediaType;
+  mediaUrl: string;
+  duration: number;
+  caption: string;
+  backgroundColor: string;
+  audience: StoryAudience;
+  viewersCount: number;
+  isViewed: boolean;
+  myReaction?: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface UserStoryGroup {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    avatarUrl?: string;
+  };
+  stories: StoryItem[];
+  hasUnseen: boolean;
+  hasCloseFriends: boolean;
+  latestStoryAt: string;
+}
+
+export interface StoryViewerInfo {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl?: string;
+  reaction?: string | null;
+}
+
+export interface StoryViewersResponse {
+  count: number;
+  reactionsSummary?: Record<string, number>;
+  viewers: StoryViewerInfo[];
+}
+

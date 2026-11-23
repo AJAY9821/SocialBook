@@ -6,6 +6,7 @@ import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import type { Pagination, Post } from '../types';
 import { CreatePostBox } from '../components/CreatePostBox';
 import { PostCard } from '../components/PostCard';
+import { StoriesTray } from '../components/StoriesTray';
 
 export function FeedPage() {
   const [posts, setPosts] = useState<Post[]>([]);
@@ -59,13 +60,17 @@ export function FeedPage() {
   };
 
   const handleAuthorUnfriended = (authorId: string) => {
-    setPosts((prev) => prev.filter((p) => p.author._id !== authorId));
+    setPosts((prev) =>
+      prev.filter((p) => (p.user?._id || p.author?._id) !== authorId),
+    );
   };
 
   const hasMore = pagination ? pagination.page < pagination.totalPages : false;
 
   return (
     <div className="space-y-4">
+      <StoriesTray />
+
       <CreatePostBox onPostCreated={handlePostCreated} />
 
       {error && (

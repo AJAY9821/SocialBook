@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
+  Ban,
   Check,
   Loader2,
   MessageSquare,
@@ -13,8 +14,10 @@ import {
 } from 'lucide-react';
 import { friendsApi } from '../api/friends';
 import { usersApi } from '../api/users';
+import { blocksApi } from '../api/blocks';
 import { getErrorMessage } from '../api/client';
 import type {
+  BlockedUserItem,
   FriendItem,
   IncomingFriendRequest,
   OutgoingFriendRequest,
@@ -22,21 +25,24 @@ import type {
 } from '../types';
 import { Avatar } from '../components/Avatar';
 import { ConfirmUnfriendModal } from '../components/ConfirmUnfriendModal';
+import { ConfirmBlockModal } from '../components/ConfirmBlockModal';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { useSocket } from '../context/SocketContext';
 
-type TabKey = 'friends' | 'requests' | 'find';
+type TabKey = 'friends' | 'requests' | 'find' | 'blocked';
 
 export function FriendsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { isOnline } = useSocket();
   const location = useLocation();
 
   const getTargetTab = useCallback((): TabKey => {
     const tabParam = searchParams.get('tab') as TabKey | null;
-    if (tabParam && ['friends', 'requests', 'find'].includes(tabParam)) {
+    if (tabParam && ['friends', 'requests', 'find', 'blocked'].includes(tabParam)) {
       return tabParam;
     }
     const stateTab = (location.state as any)?.tab as TabKey | null;
-    if (stateTab && ['friends', 'requests', 'find'].includes(stateTab)) {
+    if (stateTab && ['friends', 'requests', 'find', 'blocked'].includes(stateTab)) {
       return stateTab;
     }
     return 'friends';
@@ -58,7 +64,12 @@ export function FriendsPage() {
   const [friends, setFriends] = useState<FriendItem[]>([]);
   const [incoming, setIncoming] = useState<IncomingFriendRequest[]>([]);
   const [outgoing, setOutgoing] = useState<OutgoingFriendRequest[]>([]);
+  const [blockedUsers, setBlockedUsers] = useState<BlockedUserItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingBlocked, setLoadingBlocked] = useState(false);
+  const [unblockingId, setUnblockingId] = useState<string | null>(null);
+  const [blockTarget, setBlockTarget] = useState<{ id: string; name: string } | null>(null);
+  const [blockingUser, setBlockingUser] = useState(false);
   const [error, setError] = useState('');
   const [statusMsg, setStatusMsg] = useState('');
   const [unfriendTarget, setUnfriendTarget] = useState<{
@@ -73,6 +84,18 @@ export function FriendsPage() {
   const [hasSearched, setHasSearched] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  const loadBlockedUsers = useCallback(async () => {
+    setLoadingBlocked(true);
+    try {
+      const res = await blocksApi.getBlockedUsers();
+      setBlockedUsers(res.blockedUsers);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to load blocked users.'));
+    } finally {
+      setLoadingBlocked(false);
+    }
+  }, []);
+
   const loadAllFriendData = useCallback(async (isInitial = true) => {
     if (isInitial) setLoading(true);
     setError('');
@@ -85,6 +108,7 @@ export function FriendsPage() {
       setFriends(friendsRes.friends);
       setIncoming(incomingRes.requests);
       setOutgoing(outgoingRes.requests);
+      void loadBlockedUsers();
 
       // Instantly synchronize navbar badge with authoritative incoming count
       window.dispatchEvent(
@@ -97,7 +121,7 @@ export function FriendsPage() {
     } finally {
       if (isInitial) setLoading(false);
     }
-  }, []);
+  }, [loadBlockedUsers]);
 
   useEffect(() => {
     void loadAllFriendData(true);
@@ -105,6 +129,24 @@ export function FriendsPage() {
 
   // Revalidate on tab focus & gentle 15-second polling while viewing friends/requests
   useAutoRefresh(() => loadAllFriendData(false), { intervalMs: 15000 });
+
+  // Auto-dismiss status message after 4 seconds
+  useEffect(() => {
+    if (!statusMsg) return;
+    const timer = setTimeout(() => {
+      setStatusMsg('');
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [statusMsg]);
+
+  // Auto-dismiss error message after 6 seconds
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => {
+      setError('');
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [error]);
 
   const friendIdSet = useMemo(
     () => new Set(friends.map((f) => f.friend.id)),
@@ -276,6 +318,41 @@ export function FriendsPage() {
     }
   };
 
+  const handleUnblock = async (blockedUserId: string, userName: string) => {
+    setError('');
+    setStatusMsg('');
+    setUnblockingId(blockedUserId);
+    try {
+      await blocksApi.unblockUser(blockedUserId);
+      setStatusMsg(`${userName} has been unblocked.`);
+      setBlockedUsers((prev) => prev.filter((u) => u.id !== blockedUserId));
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to unblock user.'));
+    } finally {
+      setUnblockingId(null);
+    }
+  };
+
+  const handleConfirmBlock = async () => {
+    if (!blockTarget) return;
+    setBlockingUser(true);
+    setError('');
+    setStatusMsg('');
+    try {
+      await blocksApi.blockUser(blockTarget.id);
+      setStatusMsg(`${blockTarget.name} has been blocked.`);
+      // Immediately remove blocked user from search results
+      setSearchResults((prev) => prev.filter((u) => u.id !== blockTarget.id));
+      // Refresh friends, requests, and blocked lists in background
+      void loadAllFriendData(false);
+      setBlockTarget(null);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to block user.'));
+    } finally {
+      setBlockingUser(false);
+    }
+  };
+
   const tabClass = (key: TabKey) =>
     `flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition cursor-pointer ${
       activeTab === key
@@ -308,17 +385,40 @@ export function FriendsPage() {
         >
           Find People
         </button>
+        <button
+          type="button"
+          onClick={() => handleTabClick('blocked')}
+          className={tabClass('blocked')}
+        >
+          Blocked Users {blockedUsers.length > 0 ? `(${blockedUsers.length})` : ''}
+        </button>
       </div>
 
       {statusMsg && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700">
-          {statusMsg}
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700 shadow-2xs">
+          <span>{statusMsg}</span>
+          <button
+            type="button"
+            onClick={() => setStatusMsg('')}
+            className="rounded-lg p-0.5 text-emerald-600 hover:bg-emerald-100 transition cursor-pointer"
+            title="Dismiss notice"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
-          {error}
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700 shadow-2xs">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => setError('')}
+            className="rounded-lg p-0.5 text-red-600 hover:bg-red-100 transition cursor-pointer"
+            title="Dismiss notice"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       )}
 
@@ -353,15 +453,25 @@ export function FriendsPage() {
                         name={friend.name}
                         avatarUrl={friend.avatarUrl}
                         size="md"
+                        showOnlineStatus={true}
+                        isOnline={isOnline(friend.id)}
                       />
                     </Link>
                     <div className="min-w-0">
-                      <Link
-                        to={`/profile/${friend.id}`}
-                        className="block truncate text-sm font-semibold text-slate-900 hover:text-blue-600 hover:underline"
-                      >
-                        {friend.name}
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          to={`/profile/${friend.id}`}
+                          className="block truncate text-sm font-semibold text-slate-900 hover:text-blue-600 hover:underline"
+                        >
+                          {friend.name}
+                        </Link>
+                        {isOnline(friend.id) && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600 border border-emerald-200">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Active
+                          </span>
+                        )}
+                      </div>
                       <p className="truncate text-xs text-slate-500">
                         {friend.location || friend.email}
                       </p>
@@ -595,7 +705,7 @@ export function FriendsPage() {
                       </div>
                     </div>
 
-                    <div className="shrink-0">
+                    <div className="flex items-center gap-2 shrink-0">
                       {isFriend ? (
                         <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
                           <UserCheck className="h-3.5 w-3.5" />
@@ -626,6 +736,16 @@ export function FriendsPage() {
                           Add Friend
                         </button>
                       )}
+
+                      <button
+                        type="button"
+                        onClick={() => setBlockTarget({ id: person.id, name: person.name })}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600 transition cursor-pointer"
+                        title={`Block ${person.name}`}
+                      >
+                        <Ban className="h-3.5 w-3.5 text-slate-400" />
+                        <span>Block</span>
+                      </button>
                     </div>
                   </div>
                 );
@@ -634,6 +754,61 @@ export function FriendsPage() {
           )}
         </div>
       )}
+      {/* Tab 4: Blocked Users */}
+      {activeTab === 'blocked' && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          {loadingBlocked ? (
+            <p className="py-8 text-center text-sm text-slate-400">
+              Loading blocked users...
+            </p>
+          ) : blockedUsers.length === 0 ? (
+            <div className="py-10 text-center">
+              <Ban className="mx-auto h-8 w-8 text-slate-300" />
+              <p className="mt-2 text-sm font-semibold text-slate-700">
+                No blocked users
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                When you block someone, they won't be able to see your profile, posts, or stories, or message you.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100">
+              {blockedUsers.map((bUser) => (
+                <div
+                  key={bUser.id}
+                  className="flex items-center justify-between gap-3 py-3 first:pt-1 last:pb-1"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar
+                      name={bUser.name}
+                      avatarUrl={bUser.avatarUrl}
+                      size="md"
+                    />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">
+                        {bUser.name}
+                      </p>
+                      <p className="truncate text-xs text-slate-500">
+                        Blocked on {new Date(bUser.blockedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={unblockingId === bUser.id}
+                    onClick={() => void handleUnblock(bUser.id, bUser.name)}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50 cursor-pointer"
+                  >
+                    {unblockingId === bUser.id ? 'Unblocking...' : 'Unblock'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Confirm Unfriend Modal */}
       <ConfirmUnfriendModal
         isOpen={Boolean(unfriendTarget)}
@@ -645,6 +820,15 @@ export function FriendsPage() {
             void handleUnfriend(unfriendTarget.id, unfriendTarget.name);
           }
         }}
+      />
+
+      {/* Confirm Block Modal */}
+      <ConfirmBlockModal
+        isOpen={Boolean(blockTarget)}
+        userName={blockTarget?.name || ''}
+        loading={blockingUser}
+        onClose={() => setBlockTarget(null)}
+        onConfirm={handleConfirmBlock}
       />
     </div>
   );

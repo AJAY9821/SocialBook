@@ -70,7 +70,9 @@ export class NotificationsService {
 
     // 2. Fetch the user's posts to track likes and comments
     const userPosts = await this.postModel
-      .find({ author: userObjectId })
+      .find({
+        $or: [{ user: userObjectId }, { author: userObjectId }],
+      })
       .select('_id content')
       .lean();
 
@@ -96,11 +98,15 @@ export class NotificationsService {
       recentComments = await this.commentModel
         .find({
           post: { $in: userPostIds },
-          author: { $ne: userObjectId },
-          parentId: null,
+          $or: [{ user: { $ne: userObjectId } }, { author: { $ne: userObjectId } }],
+          $and: [
+            {
+              $or: [{ parentComment: null }, { parentId: null }],
+            },
+          ],
           isDeleted: false,
         })
-        .populate('author', 'name avatarUrl')
+        .populate('user', 'name avatarUrl')
         .populate('post', 'content')
         .sort({ createdAt: -1 })
         .limit(10)
@@ -109,7 +115,10 @@ export class NotificationsService {
 
     // 5. Recent replies to the user's comments
     const userComments = await this.commentModel
-      .find({ author: userObjectId, isDeleted: false })
+      .find({
+        $or: [{ user: userObjectId }, { author: userObjectId }],
+        isDeleted: false,
+      })
       .select('_id content post')
       .lean();
 
@@ -119,11 +128,18 @@ export class NotificationsService {
     if (userCommentIds.length > 0) {
       recentReplies = await this.commentModel
         .find({
-          parentId: { $in: userCommentIds },
-          author: { $ne: userObjectId },
+          $or: [
+            { parentComment: { $in: userCommentIds } },
+            { parentId: { $in: userCommentIds } },
+          ],
+          $and: [
+            {
+              $or: [{ user: { $ne: userObjectId } }, { author: { $ne: userObjectId } }],
+            },
+          ],
           isDeleted: false,
         })
-        .populate('author', 'name avatarUrl')
+        .populate('user', 'name avatarUrl')
         .populate('post', 'content')
         .sort({ createdAt: -1 })
         .limit(10)
@@ -177,7 +193,7 @@ export class NotificationsService {
     }
 
     for (const cmt of recentComments) {
-      const commenter = cmt.author as any;
+      const commenter = (cmt.user || cmt.author) as any;
       const post = cmt.post as any;
       const postId = post?._id ? post._id.toString() : (cmt.post ? cmt.post.toString() : '');
       if (commenter && postId) {
@@ -203,12 +219,14 @@ export class NotificationsService {
     }
 
     for (const rep of recentReplies) {
-      const replier = rep.author as any;
+      const replier = (rep.user || rep.author) as any;
       const post = rep.post as any;
       const postId = post?._id ? post._id.toString() : (rep.post ? rep.post.toString() : '');
       if (replier && postId) {
         const parentComment = userComments.find(
-          (c) => c._id.toString() === rep.parentId?.toString(),
+          (c) =>
+            c._id.toString() ===
+            (rep.parentComment?._id || rep.parentComment || rep.parentId?._id || rep.parentId)?.toString(),
         );
         const parentPreview = parentComment?.content
           ? parentComment.content.length > 20

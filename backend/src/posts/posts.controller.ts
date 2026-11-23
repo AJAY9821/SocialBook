@@ -10,10 +10,11 @@ import {
   Query,
   Req,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileFieldsInterceptor, FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
   ApiBody,
@@ -32,34 +33,46 @@ import { AuthGuard } from 'src/middlewares';
 import { PostsService } from './posts.service';
 import { CreatePostDto, SharePostDto, UpdatePostDto } from './dto';
 
-const ALLOWED_IMAGE_MIME_TYPES = new Set([
+const ALLOWED_POST_MEDIA_MIME_TYPES = new Set([
+  // Images (Max 10MB)
   'image/jpeg',
   'image/jpg',
   'image/png',
   'image/webp',
   'image/gif',
+  // Videos (Max 50MB)
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+  'video/x-matroska',
 ]);
 
-const postImageMulterOptions = {
+const postMediaMulterOptions = {
   storage: diskStorage({
-    destination: (_req, _file, cb) => {
-      const uploadsDir = path.join(process.cwd(), 'uploads');
-      if (!fs.existsSync(uploadsDir)) {
-        fs.mkdirSync(uploadsDir, { recursive: true });
+    destination: (_req, file, cb) => {
+      const isVideo = file.mimetype.startsWith('video/');
+      const subDir = isVideo
+        ? path.join('posts', 'videos')
+        : path.join('posts', 'images');
+      const targetDir = path.join(process.cwd(), 'uploads', subDir);
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
       }
-      cb(null, uploadsDir);
+      cb(null, targetDir);
     },
     filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+      const isVideo = file.mimetype.startsWith('video/');
+      const defaultExt = isVideo ? '.mp4' : '.jpg';
+      const ext = path.extname(file.originalname).toLowerCase() || defaultExt;
       cb(null, `${uuid()}${ext}`);
     },
   }),
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB hard limit for posts
   fileFilter: (_req, file, cb) => {
-    if (!ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
+    if (!ALLOWED_POST_MEDIA_MIME_TYPES.has(file.mimetype)) {
       return cb(
         new BadRequestException(
-          'Only JPG, PNG, WEBP, and GIF images are allowed.',
+          'Only JPG, PNG, WEBP, GIF images or MP4, WebM, MOV videos (up to 50MB) are allowed.',
         ),
         false,
       );
@@ -83,23 +96,60 @@ export class PostsController {
       properties: {
         content: { type: 'string' },
         image: { type: 'string', format: 'binary' },
+        video: { type: 'string', format: 'binary' },
+        media: { type: 'string', format: 'binary' },
+        videoDuration: { type: 'number' },
       },
     },
   })
   @ApiResponse({ status: 201, description: 'Post created successfully.' })
   @Post()
-  @UseInterceptors(FileInterceptor('image', postImageMulterOptions))
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'image', maxCount: 1 },
+        { name: 'video', maxCount: 1 },
+        { name: 'media', maxCount: 1 },
+      ],
+      postMediaMulterOptions,
+    ),
+  )
   async createPost(
     @Req() req: Request,
     @Body() createPostDto: CreatePostDto,
-    @UploadedFile() file?: Express.Multer.File,
+    @UploadedFiles()
+    files?: {
+      image?: Express.Multer.File[];
+      video?: Express.Multer.File[];
+      media?: Express.Multer.File[];
+    },
   ) {
     const userId = req['user']._id.toString();
-    const uploadedImageUrl = file
-      ? `${req.protocol}://${req.get('host')}/uploads/${file.filename}`
-      : undefined;
+    const uploadedFile =
+      files?.media?.[0] || files?.video?.[0] || files?.image?.[0];
 
-    return this.postsService.createPost(userId, createPostDto, uploadedImageUrl);
+    let uploadedImageUrl: string | undefined;
+    let uploadedVideoUrl: string | undefined;
+
+    if (uploadedFile) {
+      const isVideo = uploadedFile.mimetype.startsWith('video/');
+      const fileUrl = `${req.protocol}://${req.get('host')}/uploads/posts/${
+        isVideo ? 'videos' : 'images'
+      }/${uploadedFile.filename}`;
+
+      if (isVideo) {
+        uploadedVideoUrl = fileUrl;
+      } else {
+        uploadedImageUrl = fileUrl;
+      }
+    }
+
+    return this.postsService.createPost(
+      userId,
+      createPostDto,
+      uploadedImageUrl,
+      uploadedVideoUrl,
+    );
   }
 
   @ApiQuery({ name: 'page', required: false, example: 1 })
@@ -157,28 +207,61 @@ export class PostsController {
       properties: {
         content: { type: 'string' },
         image: { type: 'string', format: 'binary' },
+        video: { type: 'string', format: 'binary' },
+        media: { type: 'string', format: 'binary' },
+        videoDuration: { type: 'number' },
       },
     },
   })
   @ApiResponse({ status: 200, description: 'Post updated successfully.' })
   @Patch(':id')
-  @UseInterceptors(FileInterceptor('image', postImageMulterOptions))
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'image', maxCount: 1 },
+        { name: 'video', maxCount: 1 },
+        { name: 'media', maxCount: 1 },
+      ],
+      postMediaMulterOptions,
+    ),
+  )
   async updatePost(
     @Param('id') id: string,
     @Req() req: Request,
     @Body() updatePostDto: UpdatePostDto,
-    @UploadedFile() file?: Express.Multer.File,
+    @UploadedFiles()
+    files?: {
+      image?: Express.Multer.File[];
+      video?: Express.Multer.File[];
+      media?: Express.Multer.File[];
+    },
   ) {
     const userId = req['user']._id.toString();
-    const uploadedImageUrl = file
-      ? `${req.protocol}://${req.get('host')}/uploads/${file.filename}`
-      : undefined;
+    const uploadedFile =
+      files?.media?.[0] || files?.video?.[0] || files?.image?.[0];
+
+    let uploadedImageUrl: string | undefined;
+    let uploadedVideoUrl: string | undefined;
+
+    if (uploadedFile) {
+      const isVideo = uploadedFile.mimetype.startsWith('video/');
+      const fileUrl = `${req.protocol}://${req.get('host')}/uploads/posts/${
+        isVideo ? 'videos' : 'images'
+      }/${uploadedFile.filename}`;
+
+      if (isVideo) {
+        uploadedVideoUrl = fileUrl;
+      } else {
+        uploadedImageUrl = fileUrl;
+      }
+    }
 
     return this.postsService.updatePost(
       id,
       userId,
       updatePostDto,
       uploadedImageUrl,
+      uploadedVideoUrl,
     );
   }
 

@@ -1,1 +1,1 @@
-export { Like, LikeSchema } from './like.schema';
+export { Like, LikeSchema, REACTION_TYPE } from './like.schema';

@@ -6,10 +6,12 @@ export class Comment extends Document {
   @Prop({ type: Types.ObjectId, ref: 'Post', required: true, index: true })
   post: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  author: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true, alias: 'author' })
+  user: Types.ObjectId;
+  author?: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, ref: 'Comment', default: null, index: true })
+  @Prop({ type: Types.ObjectId, ref: 'Comment', default: null, index: true, alias: 'parentId' })
+  parentComment?: Types.ObjectId | null;
   parentId?: Types.ObjectId | null;
 
   @Prop({ type: String, required: true, trim: true, maxlength: 2000 })
@@ -24,5 +26,5 @@ export class Comment extends Document {
 
 export const CommentSchema = SchemaFactory.createForClass(Comment);
 
-CommentSchema.index({ post: 1, parentId: 1, createdAt: 1 });
+CommentSchema.index({ post: 1, parentComment: 1, createdAt: 1 });
 CommentSchema.index({ post: 1, createdAt: -1 });

@@ -63,6 +63,9 @@ export class User extends Document {
 
   @Prop({ type: Date, default: null })
   lastReadNotificationAt?: Date;
+
+  @Prop({ type: [{ type: Types.ObjectId, ref: 'User' }], default: [] })
+  closeFriends: Types.ObjectId[];
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { User } from 'models/user';
-import { Model } from 'mongoose';
+import { Connection, Model } from 'mongoose';
 import { CustomLogger } from './common/services';
 import { ErrorResponse } from './utils/responses';
 import { ROLE_VALUES } from 'models/user/user.schema';
@@ -19,6 +19,8 @@ export class BootstrapService {
 
     @InjectModel(User.name)
     private readonly userModel: Model<User>,
+    @InjectConnection()
+    private readonly connection: Connection,
   ) {}
 
   private getAdminData(): AdminData {
@@ -27,7 +29,55 @@ export class BootstrapService {
       NAME: process.env.APP_ADMIN_NAME || '',
       PASSWORD: process.env.APP_ADMIN_PASSWORD || '',
     };
-    
+  }
+
+  /**
+   * Automatically migrates legacy MongoDB documents to the standardized naming convention:
+   * - posts: author -> user
+   * - comments: author -> user, parentId -> parentComment
+   */
+  async migrateSchemaNaming() {
+    try {
+      if (!this.connection?.db) return;
+
+      const postCol = this.connection.db.collection('posts');
+      const commentCol = this.connection.db.collection('comments');
+
+      // 1. Rename 'author' -> 'user' on posts collection
+      const postResult = await postCol.updateMany(
+        { author: { $exists: true } },
+        { $rename: { author: 'user' } },
+      );
+      if (postResult.modifiedCount > 0) {
+        this.logger.log(
+          `[Migration] Successfully migrated ${postResult.modifiedCount} posts from 'author' to 'user'.`,
+        );
+      }
+
+      // 2. Rename 'author' -> 'user' on comments collection
+      const commentUserResult = await commentCol.updateMany(
+        { author: { $exists: true } },
+        { $rename: { author: 'user' } },
+      );
+      if (commentUserResult.modifiedCount > 0) {
+        this.logger.log(
+          `[Migration] Successfully migrated ${commentUserResult.modifiedCount} comments from 'author' to 'user'.`,
+        );
+      }
+
+      // 3. Rename 'parentId' -> 'parentComment' on comments collection
+      const commentParentResult = await commentCol.updateMany(
+        { parentId: { $exists: true } },
+        { $rename: { parentId: 'parentComment' } },
+      );
+      if (commentParentResult.modifiedCount > 0) {
+        this.logger.log(
+          `[Migration] Successfully migrated ${commentParentResult.modifiedCount} comments from 'parentId' to 'parentComment'.`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(`[Migration] Schema naming migration skipped or failed: ${err}`);
+    }
   }
 
   async createAdmin() {

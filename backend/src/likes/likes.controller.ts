@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Delete,
   Get,
@@ -18,6 +19,7 @@ import {
 import { Request } from 'express';
 import { AuthGuard } from 'src/middlewares';
 import { LikesService } from './likes.service';
+import { ReactPostDto } from './dto';
 
 @ApiTags('Likes')
 @ApiBearerAuth()
@@ -26,16 +28,24 @@ import { LikesService } from './likes.service';
 export class LikesController {
   constructor(private readonly likesService: LikesService) {}
 
-  @ApiParam({ name: 'postId', description: 'Post ID to like' })
-  @ApiResponse({ status: 201, description: 'Post liked successfully.' })
+  @ApiParam({ name: 'postId', description: 'Post ID to react to' })
+  @ApiResponse({ status: 200, description: 'Post reacted or updated successfully.' })
   @Post(':postId')
-  async likePost(@Param('postId') postId: string, @Req() req: Request) {
+  async likePost(
+    @Param('postId') postId: string,
+    @Req() req: Request,
+    @Body() reactPostDto?: ReactPostDto,
+  ) {
     const userId = req['user']._id.toString();
-    return this.likesService.likePost(postId, userId);
+    return this.likesService.reactToPost(
+      postId,
+      userId,
+      reactPostDto?.reactionType,
+    );
   }
 
-  @ApiParam({ name: 'postId', description: 'Post ID to unlike' })
-  @ApiResponse({ status: 200, description: 'Post unliked successfully.' })
+  @ApiParam({ name: 'postId', description: 'Post ID to unreact' })
+  @ApiResponse({ status: 200, description: 'Reaction removed successfully.' })
   @Delete(':postId')
   async unlikePost(@Param('postId') postId: string, @Req() req: Request) {
     const userId = req['user']._id.toString();
@@ -45,13 +55,20 @@ export class LikesController {
   @ApiParam({ name: 'postId', description: 'Post ID' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
-  @ApiResponse({ status: 200, description: 'List of users who liked the post.' })
+  @ApiQuery({ name: 'reaction', required: false, example: 'love' })
+  @ApiResponse({ status: 200, description: 'List of users who reacted to the post.' })
   @Get(':postId')
   async getPostLikes(
     @Param('postId') postId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Query('reaction') reaction?: string,
   ) {
-    return this.likesService.getPostLikes(postId, Number(page), Number(limit));
+    return this.likesService.getPostLikes(
+      postId,
+      Number(page),
+      Number(limit),
+      reaction,
+    );
   }
 }

@@ -50,6 +50,7 @@ export function ShareModal({
 
   // If the post being shared is itself a repost, point to the root original post
   const displayPost = post.originalPost || post;
+  const postUser = displayPost.user || displayPost.author;
 
   useEffect(() => {
     if (!isOpen) {
@@ -104,7 +105,7 @@ export function ShareModal({
       const payload = {
         type: 'shared_post',
         postId: displayPost.id,
-        authorName: displayPost.author.name,
+        authorName: postUser.name,
         content: displayPost.content || '',
         imageUrl: displayPost.imageUrl || '',
       };
@@ -234,13 +235,13 @@ export function ShareModal({
               <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
                 <div className="flex items-center gap-2.5">
                   <Avatar
-                    name={displayPost.author.name}
-                    avatarUrl={displayPost.author.avatarUrl}
+                    name={postUser.name}
+                    avatarUrl={postUser.avatarUrl}
                     size="sm"
                   />
                   <div>
                     <h4 className="text-xs font-bold text-slate-800 leading-tight">
-                      {displayPost.author.name}
+                      {postUser.name}
                     </h4>
                     <span className="text-[10px] text-slate-400">Original Post</span>
                   </div>
@@ -252,13 +253,23 @@ export function ShareModal({
                   </p>
                 )}
 
-                {displayPost.imageUrl && (
+                {displayPost.mediaType === 'video' || displayPost.videoUrl ? (
+                  <div className="mt-2.5 overflow-hidden rounded-lg border border-slate-200 bg-black">
+                    <video
+                      src={displayPost.videoUrl}
+                      controls
+                      playsInline
+                      preload="metadata"
+                      className="max-h-48 w-full object-contain"
+                    />
+                  </div>
+                ) : displayPost.imageUrl ? (
                   <img
                     src={displayPost.imageUrl}
                     alt="Post preview"
                     className="mt-2.5 max-h-40 w-full rounded-lg border border-slate-200 object-cover"
                   />
-                )}
+                ) : null}
               </div>
 
               {/* Action Button */}

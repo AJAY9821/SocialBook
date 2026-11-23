@@ -1,7 +1,9 @@
 import {
   BadRequestException,
   ForbiddenException,
+  forwardRef,
   HttpStatus,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -10,7 +12,9 @@ import { Model, Types } from 'mongoose';
 import { Message } from 'models/message';
 import { FRIENDSHIP_STATUS, Friendship } from 'models/friendship';
 import { User } from 'models/user';
+import { BlocksService } from 'src/blocks/blocks.service';
 import { SendMessageDto } from './dto';
+import { ChatGateway } from './chat.gateway';
 
 @Injectable()
 export class ChatService {
@@ -21,6 +25,9 @@ export class ChatService {
     private readonly friendshipModel: Model<Friendship>,
     @InjectModel(User.name)
     private readonly userModel: Model<User>,
+    @Inject(forwardRef(() => ChatGateway))
+    private readonly chatGateway: ChatGateway,
+    private readonly blocksService: BlocksService,
   ) {}
 
   /**
@@ -45,6 +52,11 @@ export class ChatService {
     });
     if (!recipient) {
       throw new NotFoundException('Recipient user not found.');
+    }
+
+    // 1.5. Check block status
+    if (await this.blocksService.isBlocked(senderId, dto.recipientId)) {
+      throw new ForbiddenException('You cannot message this user.');
     }
 
     // 2. Strict Privacy Guard: Must be accepted friends!
@@ -75,11 +87,20 @@ export class ChatService {
       { path: 'recipient', select: 'name email avatarUrl' },
     ]);
 
+    const formatted = this.formatMessage(populated, senderId);
+
+    // Push real-time event directly to recipient and sender sockets
+    try {
+      this.chatGateway.emitNewMessage(dto.recipientId, senderId, formatted);
+    } catch {
+      // Non-blocking if socket emit fails
+    }
+
     return {
       error: false,
       statusCode: HttpStatus.CREATED,
       msg: 'Message sent successfully.',
-      message: this.formatMessage(populated, senderId),
+      message: formatted,
     };
   }
 
@@ -203,7 +224,9 @@ export class ChatService {
       throw new NotFoundException('Friend user not found.');
     }
 
-    // 2. Verify friendship exists
+    // 2. Verify friendship or block status
+    const blockStatus = await this.blocksService.getBlockStatus(userId, friendId);
+
     const friendship = await this.friendshipModel.findOne({
       status: FRIENDSHIP_STATUS.ACCEPTED,
       $or: [
@@ -212,7 +235,7 @@ export class ChatService {
       ],
     });
 
-    if (!friendship) {
+    if (!friendship && !blockStatus.isBlocked) {
       throw new ForbiddenException(
         'You can only view chat history with users who are your accepted friends.',
       );
@@ -267,6 +290,9 @@ export class ChatService {
         email: friend.email,
         avatarUrl: friend.avatarUrl || '',
       },
+      isBlockedByMe: blockStatus.isBlockedByMe,
+      isBlockedByOther: blockStatus.isBlockedByOther,
+      isBlocked: blockStatus.isBlocked,
       messages: chronologicalMessages,
       pagination: {
         page: safePage,

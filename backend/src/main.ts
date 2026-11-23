@@ -63,7 +63,9 @@ async function bootstrap() {
   }
   app.useStaticAssets(uploadsDir, { prefix: '/uploads/' });
 
-  await app.get(BootstrapService).createAdmin();
+  const bootstrapService = app.get(BootstrapService);
+  await bootstrapService.migrateSchemaNaming();
+  await bootstrapService.createAdmin();
 
   // welcome page for the root URL
   app.getHttpAdapter().get('/', (req, res: Response) => {

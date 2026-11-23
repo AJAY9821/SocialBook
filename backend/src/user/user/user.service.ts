@@ -12,12 +12,14 @@ import {
 import { Model, Types } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
 import { User } from 'models/user';
+import { BlocksService } from 'src/blocks/blocks.service';
 
 @Injectable()
 export class UserService {
   constructor(
     @InjectModel(User.name)
     private readonly userModel: Model<User>,
+    private readonly blocksService: BlocksService,
   ) {}
 
   async getUserProfile(user: User): Promise<GetUserProfileResDTO> {
@@ -91,9 +93,11 @@ export class UserService {
     const escapedQuery = trimmedQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(escapedQuery, 'i');
 
+    const blockedUserIds = await this.blocksService.getBlockedUserIds(currentUserId);
+
     const users = await this.userModel
       .find({
-        _id: { $ne: currentUserId },
+        _id: { $ne: currentUserId, $nin: blockedUserIds },
         isDeleted: false,
         $or: [{ name: regex }, { email: regex }],
       })
@@ -107,7 +111,10 @@ export class UserService {
     };
   }
 
-  async getUserById(userId: string): Promise<GetUserProfileResDTO> {
+  async getUserById(
+    userId: string,
+    currentUserId?: string,
+  ): Promise<GetUserProfileResDTO & { isBlockedByMe?: boolean; isBlockedByOther?: boolean; isBlocked?: boolean }> {
     if (!Types.ObjectId.isValid(userId)) {
       throw new BadRequestException('Invalid user ID.');
     }
@@ -121,10 +128,27 @@ export class UserService {
       throw new NotFoundException('User not found.');
     }
 
+    let isBlockedByMe = false;
+    let isBlockedByOther = false;
+    let isBlocked = false;
+
+    if (currentUserId && currentUserId !== userId) {
+      const blockStatus = await this.blocksService.getBlockStatus(
+        currentUserId,
+        userId,
+      );
+      isBlockedByMe = blockStatus.isBlockedByMe;
+      isBlockedByOther = blockStatus.isBlockedByOther;
+      isBlocked = blockStatus.isBlocked;
+    }
+
     return {
       error: false,
       statusCode: HttpStatus.OK,
       user: UserProfileDto.transform(user),
+      isBlockedByMe,
+      isBlockedByOther,
+      isBlocked,
     };
   }
 }

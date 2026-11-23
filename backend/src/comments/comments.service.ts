@@ -34,14 +34,15 @@ export class CommentsService {
       throw new NotFoundException('Post not found.');
     }
 
+    const requestedParent = createCommentDto.parentComment || createCommentDto.parentId;
     let resolvedParentId: Types.ObjectId | null = null;
-    if (createCommentDto.parentId) {
-      if (!Types.ObjectId.isValid(createCommentDto.parentId)) {
+    if (requestedParent) {
+      if (!Types.ObjectId.isValid(requestedParent)) {
         throw new BadRequestException('Invalid parent comment ID.');
       }
 
       const parentComment = await this.commentModel.findOne({
-        _id: createCommentDto.parentId,
+        _id: requestedParent,
         post: post._id,
         isDeleted: false,
       });
@@ -51,13 +52,15 @@ export class CommentsService {
       }
 
       // Enforce 1-level threading: if replying to a reply, attach to the top-level parent
-      resolvedParentId = (parentComment.parentId as Types.ObjectId) || (parentComment._id as Types.ObjectId);
+      resolvedParentId =
+        ((parentComment.parentComment || parentComment.parentId) as Types.ObjectId) ||
+        (parentComment._id as Types.ObjectId);
     }
 
     const comment = await this.commentModel.create({
       post: post._id,
-      author: new Types.ObjectId(userId),
-      parentId: resolvedParentId,
+      user: new Types.ObjectId(userId),
+      parentComment: resolvedParentId,
       content: createCommentDto.content,
     });
 
@@ -65,7 +68,7 @@ export class CommentsService {
       $inc: { commentsCount: 1 },
     });
 
-    await comment.populate('author', 'name email avatarUrl');
+    await comment.populate('user', 'name email avatarUrl');
 
     return {
       error: false,
@@ -89,10 +92,10 @@ export class CommentsService {
     const safeLimit = Math.min(50, Math.max(1, Number(limit) || 20));
     const skip = (safePage - 1) * safeLimit;
 
-    // Fetch top-level comments (parentId is null or undefined)
+    // Fetch top-level comments (parentComment is null or undefined)
     const filter = {
       post: post._id,
-      parentId: null,
+      $or: [{ parentComment: null }, { parentId: null }],
       isDeleted: false,
     };
 
@@ -102,7 +105,7 @@ export class CommentsService {
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(safeLimit)
-        .populate('author', 'name email avatarUrl')
+        .populate('user', 'name email avatarUrl')
         .exec(),
       this.commentModel.countDocuments(filter),
     ]);
@@ -115,17 +118,21 @@ export class CommentsService {
       replies = await this.commentModel
         .find({
           post: post._id,
-          parentId: { $in: topCommentIds },
+          $or: [
+            { parentComment: { $in: topCommentIds } },
+            { parentId: { $in: topCommentIds } },
+          ],
           isDeleted: false,
         })
         .sort({ createdAt: 1 })
-        .populate('author', 'name email avatarUrl')
+        .populate('user', 'name email avatarUrl')
         .exec();
     }
 
     const repliesByParentId = new Map<string, any[]>();
     for (const reply of replies) {
-      const pId = reply.parentId ? reply.parentId.toString() : '';
+      const parentRef = reply.parentComment || reply.parentId;
+      const pId = parentRef ? parentRef.toString() : '';
       if (!repliesByParentId.has(pId)) {
         repliesByParentId.set(pId, []);
       }
@@ -168,13 +175,14 @@ export class CommentsService {
       throw new NotFoundException('Comment not found.');
     }
 
-    if (comment.author.toString() !== userId) {
+    const commentUser = (comment.user || comment.author)?.toString();
+    if (commentUser !== userId) {
       throw new ForbiddenException('You can only edit your own comments.');
     }
 
     comment.content = updateCommentDto.content;
     await comment.save();
-    await comment.populate('author', 'name email avatarUrl');
+    await comment.populate('user', 'name email avatarUrl');
 
     return {
       error: false,
@@ -199,8 +207,8 @@ export class CommentsService {
     }
 
     const post = await this.postModel.findById(comment.post);
-    const isCommentAuthor = comment.author.toString() === userId;
-    const isPostAuthor = post && post.author.toString() === userId;
+    const isCommentAuthor = (comment.user || comment.author)?.toString() === userId;
+    const isPostAuthor = post && (post.user || post.author)?.toString() === userId;
 
     if (!isCommentAuthor && !isPostAuthor) {
       throw new ForbiddenException(
@@ -213,15 +221,19 @@ export class CommentsService {
 
     let totalDeleted = 1;
     // If a top-level comment is deleted, also soft-delete all its replies
-    if (!comment.parentId) {
+    const parentRef = comment.parentComment || comment.parentId;
+    if (!parentRef) {
       const childRepliesCount = await this.commentModel.countDocuments({
-        parentId: comment._id,
+        $or: [{ parentComment: comment._id }, { parentId: comment._id }],
         isDeleted: false,
       });
 
       if (childRepliesCount > 0) {
         await this.commentModel.updateMany(
-          { parentId: comment._id, isDeleted: false },
+          {
+            $or: [{ parentComment: comment._id }, { parentId: comment._id }],
+            isDeleted: false,
+          },
           { isDeleted: true },
         );
         totalDeleted += childRepliesCount;
@@ -242,11 +254,15 @@ export class CommentsService {
 
   private formatComment(comment: any, replies: any[] = []) {
     const obj = comment.toObject ? comment.toObject() : comment;
+    const user = obj.user || obj.author;
+    const parent = obj.parentComment || obj.parentId;
     return {
       id: obj._id.toString(),
-      postId: obj.post.toString(),
-      parentId: obj.parentId ? obj.parentId.toString() : null,
-      author: obj.author,
+      postId: obj.post ? obj.post.toString() : '',
+      parentComment: parent ? parent.toString() : null,
+      parentId: parent ? parent.toString() : null, // Backward compatible
+      user,
+      author: user, // Backward compatible
       content: obj.content,
       replies,
       createdAt: obj.createdAt,

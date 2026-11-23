@@ -18,16 +18,19 @@ import {
   Upload,
   UserCheck,
   UserPlus,
+  Ban,
   X,
 } from 'lucide-react';
 import { usersApi, type UpdateProfilePayload } from '../api/users';
 import { postsApi } from '../api/posts';
 import { friendsApi } from '../api/friends';
+import { blocksApi } from '../api/blocks';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import type { Post, User } from '../types';
 import { Avatar } from '../components/Avatar';
 import { PostCard } from '../components/PostCard';
+import { ConfirmBlockModal } from '../components/ConfirmBlockModal';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 type RelationState =
@@ -63,6 +66,10 @@ export function ProfilePage() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
   const [friendBusy, setFriendBusy] = useState(false);
+  const [showBlockModal, setShowBlockModal] = useState(false);
+  const [blockingBusy, setBlockingBusy] = useState(false);
+  const [isBlockedByMe, setIsBlockedByMe] = useState(false);
+  const [isBlockedByOther, setIsBlockedByOther] = useState(false);
 
   const loadProfileData = useCallback(
     async (isInitial = true) => {
@@ -83,6 +90,8 @@ export function ProfilePage() {
         ]);
 
         setProfile(profileRes.user);
+        setIsBlockedByMe(Boolean((profileRes as any).isBlockedByMe || profileRes.user.isBlockedByMe));
+        setIsBlockedByOther(Boolean((profileRes as any).isBlockedByOther || profileRes.user.isBlockedByOther));
         setPosts(postsRes.posts);
 
         if (isInitial) {
@@ -131,6 +140,24 @@ export function ProfilePage() {
 
   // Revalidate on tab focus & 20-second gentle polling while viewing profile
   useAutoRefresh(() => loadProfileData(false), { intervalMs: 20000 });
+
+  // Auto-dismiss status message after 4 seconds
+  useEffect(() => {
+    if (!statusMsg) return;
+    const timer = setTimeout(() => {
+      setStatusMsg('');
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [statusMsg]);
+
+  // Auto-dismiss error message after 6 seconds
+  useEffect(() => {
+    if (!error) return;
+    const timer = setTimeout(() => {
+      setError('');
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [error]);
 
   const validateImageFile = (file: File): string | null => {
     if (!file.type.startsWith('image/')) {
@@ -251,6 +278,38 @@ export function ProfilePage() {
     }
   };
 
+  const handleConfirmBlock = async () => {
+    if (!profile) return;
+    setBlockingBusy(true);
+    try {
+      await blocksApi.blockUser(profile.id);
+      setIsBlockedByMe(true);
+      setRelation({ type: 'none' });
+      setPosts([]);
+      setShowBlockModal(false);
+      setStatusMsg(`${profile.name} has been blocked.`);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to block user.'));
+    } finally {
+      setBlockingBusy(false);
+    }
+  };
+
+  const handleUnblockUser = async () => {
+    if (!profile) return;
+    setBlockingBusy(true);
+    try {
+      await blocksApi.unblockUser(profile.id);
+      setIsBlockedByMe(false);
+      setStatusMsg(`${profile.name} has been unblocked.`);
+      void loadProfileData(false);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to unblock user.'));
+    } finally {
+      setBlockingBusy(false);
+    }
+  };
+
   const handlePostUpdated = (updated: Post) => {
     setPosts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
   };
@@ -273,6 +332,26 @@ export function ProfilePage() {
         <p className="text-sm font-medium text-red-600">
           {error || 'User profile not found.'}
         </p>
+      </div>
+    );
+  }
+
+  if (isBlockedByOther) {
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+          <Ban className="h-7 w-7" />
+        </div>
+        <h2 className="mt-4 text-lg font-bold text-slate-800">User Unavailable</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          This profile is not available or you do not have permission to view it.
+        </p>
+        <Link
+          to="/"
+          className="mt-5 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-blue-700 cursor-pointer"
+        >
+          Back to Feed
+        </Link>
       </div>
     );
   }
@@ -363,8 +442,20 @@ export function ProfilePage() {
                   </>
                 )}
               </button>
+            ) : isBlockedByMe ? (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={blockingBusy}
+                  onClick={() => void handleUnblockUser()}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-100 transition cursor-pointer disabled:opacity-50 shadow-2xs"
+                >
+                  <Ban className="h-4 w-4" />
+                  <span>{blockingBusy ? 'Unblocking...' : 'Unblock User'}</span>
+                </button>
+              </div>
             ) : (
-              <div>
+              <div className="flex items-center gap-2">
                 {relation.type === 'friends' ? (
                   <div className="flex items-center gap-2">
                     <Link
@@ -404,6 +495,16 @@ export function ProfilePage() {
                     Add Friend
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => setShowBlockModal(true)}
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600 transition cursor-pointer shadow-2xs"
+                  title={`Block ${profile.name}`}
+                >
+                  <Ban className="h-4 w-4 text-slate-400" />
+                  <span>Block</span>
+                </button>
               </div>
             )}
           </div>
@@ -442,14 +543,30 @@ export function ProfilePage() {
           </div>
 
           {statusMsg && (
-            <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-sm text-emerald-700">
-              {statusMsg}
+            <div className="mt-4 flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-sm text-emerald-700 shadow-2xs">
+              <span>{statusMsg}</span>
+              <button
+                type="button"
+                onClick={() => setStatusMsg('')}
+                className="rounded-lg p-0.5 text-emerald-600 hover:bg-emerald-100 transition cursor-pointer"
+                title="Dismiss notice"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
           )}
 
           {error && (
-            <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2 text-sm text-red-700">
-              {error}
+            <div className="mt-4 flex items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2 text-sm text-red-700 shadow-2xs">
+              <span>{error}</span>
+              <button
+                type="button"
+                onClick={() => setError('')}
+                className="rounded-lg p-0.5 text-red-600 hover:bg-red-100 transition cursor-pointer"
+                title="Dismiss notice"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
           )}
 
@@ -588,6 +705,16 @@ export function ProfilePage() {
           ))
         )}
       </div>
+
+      {profile && (
+        <ConfirmBlockModal
+          isOpen={showBlockModal}
+          userName={profile.name}
+          onConfirm={handleConfirmBlock}
+          onClose={() => setShowBlockModal(false)}
+          loading={blockingBusy}
+        />
+      )}
     </div>
   );
 }

@@ -50,6 +50,9 @@ export interface ChatHistoryResponse {
     total: number;
     totalPages: number;
   };
+  isBlockedByMe?: boolean;
+  isBlockedByOther?: boolean;
+  isBlocked?: boolean;
 }
 
 export interface SendMessagePayload {

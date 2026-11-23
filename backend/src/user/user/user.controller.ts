@@ -187,7 +187,8 @@ export class UserController {
     type: ErrorResponse,
   })
   @Get(':id')
-  async getUserById(@Param('id') id: string) {
-    return this.userService.getUserById(id);
+  async getUserById(@Param('id') id: string, @Req() req: Request) {
+    const currentUserId = req['user']?._id?.toString();
+    return this.userService.getUserById(id, currentUserId);
   }
 }

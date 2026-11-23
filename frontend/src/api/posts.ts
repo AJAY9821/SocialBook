@@ -1,22 +1,41 @@
 import { apiClient } from './client';
-import type { CommentItem, Pagination, PopulatedUser, Post } from '../types';
+import type {
+  CommentItem,
+  Pagination,
+  PopulatedUser,
+  Post,
+  ReactionType,
+} from '../types';
 
 export interface CreatePostPayload {
   content: string;
   image?: File;
+  video?: File;
+  media?: File;
+  videoDuration?: number;
 }
 
 export interface UpdatePostPayload {
   content?: string;
   image?: File;
+  video?: File;
+  media?: File;
+  videoDuration?: number;
 }
 
 export const postsApi = {
   async createPost(payload: CreatePostPayload) {
     const formData = new FormData();
     formData.append('content', payload.content);
-    if (payload.image) {
+    if (payload.media) {
+      formData.append('media', payload.media);
+    } else if (payload.video) {
+      formData.append('video', payload.video);
+    } else if (payload.image) {
       formData.append('image', payload.image);
+    }
+    if (payload.videoDuration !== undefined) {
+      formData.append('videoDuration', String(payload.videoDuration));
     }
 
     const { data } = await apiClient.post<{
@@ -64,8 +83,15 @@ export const postsApi = {
     if (payload.content !== undefined) {
       formData.append('content', payload.content);
     }
-    if (payload.image) {
+    if (payload.media) {
+      formData.append('media', payload.media);
+    } else if (payload.video) {
+      formData.append('video', payload.video);
+    } else if (payload.image) {
       formData.append('image', payload.image);
+    }
+    if (payload.videoDuration !== undefined) {
+      formData.append('videoDuration', String(payload.videoDuration));
     }
 
     const { data } = await apiClient.patch<{
@@ -88,14 +114,21 @@ export const postsApi = {
     return data;
   },
 
-  async likePost(postId: string) {
+  async reactToPost(postId: string, reactionType?: ReactionType) {
     const { data } = await apiClient.post<{
       error: boolean;
       statusCode: number;
+      action: 'created' | 'updated' | 'removed';
       msg: string;
+      isLikedByMe: boolean;
+      myReaction: ReactionType | null;
       likesCount: number;
-    }>(`/likes/${postId}`);
+    }>(`/likes/${postId}`, { reactionType });
     return data;
+  },
+
+  async likePost(postId: string) {
+    return this.reactToPost(postId, 'like');
   },
 
   async unlikePost(postId: string) {
@@ -108,18 +141,26 @@ export const postsApi = {
     return data;
   },
 
-  async getPostLikes(postId: string, page = 1, limit = 50) {
+  async getPostLikes(
+    postId: string,
+    page = 1,
+    limit = 50,
+    reaction?: string,
+  ) {
     const { data } = await apiClient.get<{
       error: boolean;
       statusCode: number;
       likesCount: number;
+      reactionsCount: Record<ReactionType, number>;
+      topReactions: ReactionType[];
       likes: {
         id: string;
         user: PopulatedUser;
+        reactionType: ReactionType;
         createdAt: string;
       }[];
       pagination: Pagination;
-    }>(`/likes/${postId}`, { params: { page, limit } });
+    }>(`/likes/${postId}`, { params: { page, limit, reaction } });
     return data;
   },
 
@@ -133,13 +174,21 @@ export const postsApi = {
     return data;
   },
 
-  async addComment(postId: string, content: string, parentId?: string) {
+  async addComment(
+    postId: string,
+    content: string,
+    parentCommentId?: string,
+  ) {
     const { data } = await apiClient.post<{
       error: boolean;
       statusCode: number;
       msg: string;
       comment: CommentItem;
-    }>(`/comments/${postId}`, { content, parentId });
+    }>(`/comments/${postId}`, {
+      content,
+      parentComment: parentCommentId,
+      parentId: parentCommentId,
+    });
     return data;
   },
 

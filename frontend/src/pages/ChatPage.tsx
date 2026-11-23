@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
+  Ban,
   Check,
   CheckCheck,
   ExternalLink,
@@ -9,12 +10,16 @@ import {
   Repeat2,
   Search,
   Send,
+  Sparkles,
   Users,
 } from 'lucide-react';
 import { chatApi, type ChatMessage, type ConversationItem } from '../api/chat';
+import { blocksApi } from '../api/blocks';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useSocket } from '../context/SocketContext';
 import { Avatar } from '../components/Avatar';
+import { ConfirmBlockModal } from '../components/ConfirmBlockModal';
 
 function formatChatTime(dateString: string): string {
   const date = new Date(dateString);
@@ -40,6 +45,22 @@ function formatChatTime(dateString: string): string {
 
 function formatSnippet(content: string, isMe: boolean): string {
   const prefix = isMe ? 'You: ' : '';
+  if (content.startsWith('[STORY_REPLY]:')) {
+    try {
+      const data = JSON.parse(content.replace('[STORY_REPLY]:', ''));
+      return `${prefix}Replied to story: "${data.replyText}"`;
+    } catch {
+      return `${prefix}Replied to a story`;
+    }
+  }
+  if (content.startsWith('[STORY_REACTION]:')) {
+    try {
+      const data = JSON.parse(content.replace('[STORY_REACTION]:', ''));
+      return `${prefix}Reacted ${data.reaction} to a story`;
+    } catch {
+      return `${prefix}Reacted to a story`;
+    }
+  }
   if (content.startsWith('[SHARED_POST]:')) {
     try {
       const data = JSON.parse(content.replace('[SHARED_POST]:', ''));
@@ -61,6 +82,97 @@ function MessageContent({
   content: string;
   isMe: boolean;
 }) {
+  if (content.startsWith('[STORY_REPLY]:')) {
+    try {
+      const data = JSON.parse(content.replace('[STORY_REPLY]:', ''));
+      return (
+        <div className="space-y-2">
+          <div
+            className={`overflow-hidden rounded-xl border p-2.5 transition ${
+              isMe
+                ? 'border-blue-400 bg-blue-700/60 text-white'
+                : 'border-slate-200 bg-slate-100 dark:bg-slate-800 dark:border-slate-700 text-slate-800 dark:text-slate-100'
+            }`}
+          >
+            <div className="flex items-center gap-1.5 mb-1.5 text-[11px] font-semibold opacity-90">
+              <Sparkles className="h-3.5 w-3.5 text-rose-400" />
+              <span>{isMe ? 'You replied to their story' : 'Replied to your story'}</span>
+            </div>
+
+            {data.mediaType === 'image' && data.mediaUrl && (
+              <img
+                src={data.mediaUrl}
+                alt="Story attachment"
+                className="mb-1.5 max-h-36 w-full rounded-lg object-cover"
+              />
+            )}
+            {data.mediaType === 'video' && data.mediaUrl && (
+              <video
+                src={data.mediaUrl}
+                className="mb-1.5 max-h-36 w-full rounded-lg object-cover"
+              />
+            )}
+            {data.caption && (
+              <p className="line-clamp-2 text-xs italic opacity-85">
+                &quot;{data.caption}&quot;
+              </p>
+            )}
+          </div>
+
+          <p className="text-sm font-medium leading-relaxed whitespace-pre-wrap">
+            {data.replyText}
+          </p>
+        </div>
+      );
+    } catch {
+      // Fallback
+    }
+  }
+
+  if (content.startsWith('[STORY_REACTION]:')) {
+    try {
+      const data = JSON.parse(content.replace('[STORY_REACTION]:', ''));
+      return (
+        <div className="space-y-2">
+          <div
+            className={`overflow-hidden rounded-xl border p-2.5 transition ${
+              isMe
+                ? 'border-blue-400 bg-blue-700/60 text-white'
+                : 'border-slate-200 bg-slate-100 dark:bg-slate-800 dark:border-slate-700 text-slate-800 dark:text-slate-100'
+            }`}
+          >
+            <div className="flex items-center gap-1.5 mb-1 text-[11px] font-semibold opacity-90">
+              <Sparkles className="h-3.5 w-3.5 text-rose-400" />
+              <span>{isMe ? 'You reacted to their story' : 'Reacted to your story'}</span>
+            </div>
+
+            {data.mediaType === 'image' && data.mediaUrl && (
+              <img
+                src={data.mediaUrl}
+                alt="Story attachment"
+                className="mb-1.5 max-h-28 w-full rounded-lg object-cover"
+              />
+            )}
+            {data.caption && (
+              <p className="line-clamp-2 text-xs italic opacity-85">
+                &quot;{data.caption}&quot;
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-3xl">{data.reaction}</span>
+            <span className="text-xs font-semibold opacity-90">
+              Reacted {data.reaction}
+            </span>
+          </div>
+        </div>
+      );
+    } catch {
+      // Fallback
+    }
+  }
+
   if (content.startsWith('[SHARED_POST]:')) {
     try {
       const data = JSON.parse(content.replace('[SHARED_POST]:', ''));
@@ -145,6 +257,7 @@ export function ChatPage() {
   const { friendId } = useParams<{ friendId?: string }>();
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
+  const { isOnline, isTyping, sendTyping } = useSocket();
 
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
   const [loadingConversations, setLoadingConversations] = useState(true);
@@ -162,13 +275,111 @@ export function ChatPage() {
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [chatError, setChatError] = useState('');
+  const [isBlockedByMe, setIsBlockedByMe] = useState(false);
+  const [isBlockedByOther, setIsBlockedByOther] = useState(false);
+  const [showBlockModal, setShowBlockModal] = useState(false);
+  const [blockingBusy, setBlockingBusy] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isFirstLoadRef = useRef(true);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' });
   };
+
+  // Typing debounce handler
+  const handleInputChange = (text: string) => {
+    setInputText(text);
+    if (!friendId) return;
+
+    if (text.trim().length > 0) {
+      sendTyping(friendId, true);
+
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      typingTimeoutRef.current = setTimeout(() => {
+        sendTyping(friendId, false);
+        typingTimeoutRef.current = null;
+      }, 2500);
+    } else {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+      sendTyping(friendId, false);
+    }
+  };
+
+  // Cleanup typing when navigating away or switching friends
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+      if (friendId) {
+        sendTyping(friendId, false);
+      }
+    };
+  }, [friendId, sendTyping]);
+
+  // Real-time instant message listener
+  useEffect(() => {
+    const handleNewMessage = (e: Event) => {
+      const customEvent = e as CustomEvent<ChatMessage>;
+      const newMsg = customEvent.detail;
+      if (!newMsg) return;
+
+      // If viewing chat with this friend or sent from our other open tab
+      if (
+        friendId &&
+        (newMsg.sender.id === friendId ||
+          (newMsg.sender.id === currentUser?.id && newMsg.recipient.id === friendId))
+      ) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === newMsg.id)) return prev;
+          return [...prev, newMsg];
+        });
+        setTimeout(() => scrollToBottom('smooth'), 50);
+
+        if (newMsg.sender.id === friendId) {
+          void chatApi.markAsRead(friendId);
+        }
+      }
+
+      // Update sidebar preview snippet
+      setConversations((prev) =>
+        prev.map((c) => {
+          const isRelated =
+            c.friend.id === newMsg.sender.id || c.friend.id === newMsg.recipient.id;
+          if (!isRelated) return c;
+          return {
+            ...c,
+            latestMessage: {
+              id: newMsg.id,
+              content: newMsg.content,
+              senderId: newMsg.sender.id,
+              isMe: newMsg.sender.id === currentUser?.id,
+              isRead: newMsg.isRead,
+              createdAt: newMsg.createdAt,
+            },
+            unreadCount:
+              newMsg.sender.id === c.friend.id && c.friend.id !== friendId
+                ? c.unreadCount + 1
+                : c.unreadCount,
+          };
+        }),
+      );
+    };
+
+    window.addEventListener('chat:new_message', handleNewMessage);
+    return () => {
+      window.removeEventListener('chat:new_message', handleNewMessage);
+    };
+  }, [friendId, currentUser?.id]);
 
   // Load conversation list
   const loadConversations = useCallback(async (showLoading = false) => {
@@ -199,6 +410,8 @@ export function ChatPage() {
         const res = await chatApi.getChatHistory(targetFriendId);
         setActiveFriend(res.friend);
         setMessages(res.messages);
+        setIsBlockedByMe(Boolean(res.isBlockedByMe));
+        setIsBlockedByOther(Boolean(res.isBlockedByOther));
 
         if (!isPoll || isFirstLoadRef.current) {
           setTimeout(() => scrollToBottom('auto'), 50);
@@ -241,8 +454,39 @@ export function ChatPage() {
     } else {
       setActiveFriend(null);
       setMessages([]);
+      setIsBlockedByMe(false);
+      setIsBlockedByOther(false);
     }
   }, [friendId, loadChatHistory]);
+
+  const handleConfirmBlock = async () => {
+    if (!friendId || !activeFriend) return;
+    setBlockingBusy(true);
+    try {
+      await blocksApi.blockUser(friendId);
+      setIsBlockedByMe(true);
+      setShowBlockModal(false);
+      await loadConversations(false);
+    } catch (err) {
+      setChatError(getErrorMessage(err, 'Failed to block user.'));
+    } finally {
+      setBlockingBusy(false);
+    }
+  };
+
+  const handleUnblock = async () => {
+    if (!friendId || !activeFriend) return;
+    setBlockingBusy(true);
+    try {
+      await blocksApi.unblockUser(friendId);
+      setIsBlockedByMe(false);
+      await loadConversations(false);
+    } catch (err) {
+      setChatError(getErrorMessage(err, 'Failed to unblock user.'));
+    } finally {
+      setBlockingBusy(false);
+    }
+  };
 
   // Auto-scroll when new messages arrive
   useEffect(() => {
@@ -259,6 +503,15 @@ export function ChatPage() {
     const content = inputText.trim();
     setInputText('');
     setSending(true);
+
+    // Stop typing indicator immediately
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    if (friendId) {
+      sendTyping(friendId, false);
+    }
 
     // Optimistic UI update
     const tempId = `temp-${Date.now()}`;
@@ -390,6 +643,8 @@ export function ChatPage() {
                         name={item.friend.name}
                         avatarUrl={item.friend.avatarUrl}
                         size="md"
+                        showOnlineStatus={true}
+                        isOnline={isOnline(item.friend.id)}
                       />
                       {item.unreadCount > 0 && (
                         <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold text-white shadow-sm">
@@ -409,20 +664,31 @@ export function ChatPage() {
                           </span>
                         )}
                       </div>
-                      <p
-                        className={`truncate text-[11px] ${
-                          item.unreadCount > 0
-                            ? 'font-bold text-slate-900'
-                            : 'text-slate-500'
-                        }`}
-                      >
-                        {item.latestMessage
-                          ? formatSnippet(
-                              item.latestMessage.content,
-                              item.latestMessage.isMe,
-                            )
-                          : 'Click to start chatting'}
-                      </p>
+                      {isTyping(item.friend.id) ? (
+                        <p className="truncate text-[11px] font-medium text-blue-600 italic flex items-center gap-1">
+                          <span>Typing</span>
+                          <span className="inline-flex gap-0.5">
+                            <span className="h-1 w-1 rounded-full bg-blue-600 animate-bounce [animation-delay:-0.3s]" />
+                            <span className="h-1 w-1 rounded-full bg-blue-600 animate-bounce [animation-delay:-0.15s]" />
+                            <span className="h-1 w-1 rounded-full bg-blue-600 animate-bounce" />
+                          </span>
+                        </p>
+                      ) : (
+                        <p
+                          className={`truncate text-[11px] ${
+                            item.unreadCount > 0
+                              ? 'font-bold text-slate-900'
+                              : 'text-slate-500'
+                          }`}
+                        >
+                          {item.latestMessage
+                            ? formatSnippet(
+                                item.latestMessage.content,
+                                item.latestMessage.isMe,
+                              )
+                            : 'Click to start chatting'}
+                        </p>
+                      )}
                     </div>
                   </button>
                 );
@@ -460,23 +726,54 @@ export function ChatPage() {
                       name={activeFriend.name}
                       avatarUrl={activeFriend.avatarUrl}
                       size="sm"
+                      showOnlineStatus={true}
+                      isOnline={isOnline(activeFriend.id)}
                     />
                     <div>
                       <h2 className="text-xs font-bold text-slate-800 leading-tight">
                         {activeFriend.name}
                       </h2>
-                      <span className="text-[10px] text-emerald-600 font-medium">
-                        Friend
-                      </span>
+                      {isOnline(activeFriend.id) ? (
+                        <span className="flex items-center gap-1 text-[10px] text-emerald-600 font-medium">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          Active now
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 font-normal">
+                          Offline
+                        </span>
+                      )}
                     </div>
                   </Link>
                 </div>
-                <Link
-                  to={`/profile/${activeFriend.id}`}
-                  className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                >
-                  View Profile
-                </Link>
+                <div className="flex items-center gap-2">
+                  {isBlockedByMe ? (
+                    <button
+                      type="button"
+                      onClick={handleUnblock}
+                      disabled={blockingBusy}
+                      className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50 cursor-pointer"
+                    >
+                      {blockingBusy ? 'Unblocking...' : 'Unblock User'}
+                    </button>
+                  ) : !isBlockedByOther ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowBlockModal(true)}
+                      className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600 transition cursor-pointer"
+                      title="Block User"
+                    >
+                      <Ban className="h-3.5 w-3.5" />
+                      <span>Block</span>
+                    </button>
+                  ) : null}
+                  <Link
+                    to={`/profile/${activeFriend.id}`}
+                    className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                  >
+                    View Profile
+                  </Link>
+                </div>
               </div>
 
               {/* Error Alert */}
@@ -555,34 +852,79 @@ export function ChatPage() {
                     );
                   })
                 )}
+                {/* Typing Indicator Bubble */}
+                {activeFriend && isTyping(activeFriend.id) && (
+                  <div className="flex items-center gap-2 py-1">
+                    <Avatar
+                      name={activeFriend.name}
+                      avatarUrl={activeFriend.avatarUrl}
+                      size="xs"
+                    />
+                    <div className="flex items-center gap-1.5 rounded-2xl bg-white border border-slate-200 px-3 py-1.5 shadow-xs">
+                      <span className="text-[11px] text-slate-500 font-medium">
+                        {activeFriend.name} is typing
+                      </span>
+                      <span className="flex gap-1 items-center ml-0.5">
+                        <span className="h-1.5 w-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:-0.3s]" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:-0.15s]" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-blue-600 animate-bounce" />
+                      </span>
+                    </div>
+                  </div>
+                )}
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Message Input Box */}
-              <form
-                onSubmit={handleSendMessage}
-                className="border-t border-slate-100 bg-white p-3"
-              >
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    placeholder="Type a message..."
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    disabled={sending}
-                    maxLength={2000}
-                    className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none"
-                  />
+              {/* Message Input Box or Block Banner */}
+              {isBlockedByMe ? (
+                <div className="border-t border-slate-100 bg-slate-50 p-4 text-center">
+                  <p className="text-xs font-semibold text-slate-700">
+                    🚫 You have blocked {activeFriend.name}.
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    Unblock this user to resume sending and receiving messages.
+                  </p>
                   <button
-                    type="submit"
-                    disabled={!inputText.trim() || sending}
-                    className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600"
-                    title="Send message"
+                    type="button"
+                    onClick={handleUnblock}
+                    disabled={blockingBusy}
+                    className="mt-2.5 inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
                   >
-                    <Send className="h-4 w-4" />
+                    Unblock {activeFriend.name}
                   </button>
                 </div>
-              </form>
+              ) : isBlockedByOther ? (
+                <div className="border-t border-slate-100 bg-slate-50 p-4 text-center">
+                  <p className="text-xs font-medium text-slate-500">
+                    🚫 You cannot send messages to this conversation.
+                  </p>
+                </div>
+              ) : (
+                <form
+                  onSubmit={handleSendMessage}
+                  className="border-t border-slate-100 bg-white p-3"
+                >
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="Type a message..."
+                      value={inputText}
+                      onChange={(e) => handleInputChange(e.target.value)}
+                      disabled={sending}
+                      maxLength={2000}
+                      className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!inputText.trim() || sending}
+                      className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 cursor-pointer"
+                      title="Send message"
+                    >
+                      <Send className="h-4 w-4" />
+                    </button>
+                  </div>
+                </form>
+              )}
             </>
           ) : (
             // Placeholder when no conversation is selected on desktop
@@ -601,6 +943,15 @@ export function ChatPage() {
           )}
         </section>
       </div>
+
+      {/* Confirm Block Modal */}
+      <ConfirmBlockModal
+        isOpen={showBlockModal}
+        userName={activeFriend?.name || 'this user'}
+        loading={blockingBusy}
+        onClose={() => setShowBlockModal(false)}
+        onConfirm={handleConfirmBlock}
+      />
     </div>
   );
 }
