@@ -28,6 +28,7 @@ import { useAuth } from '../context/AuthContext';
 import type { Post, User } from '../types';
 import { Avatar } from '../components/Avatar';
 import { PostCard } from '../components/PostCard';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 type RelationState =
   | { type: 'none' }
@@ -63,63 +64,73 @@ export function ProfilePage() {
   const [uploadingCover, setUploadingCover] = useState(false);
   const [friendBusy, setFriendBusy] = useState(false);
 
-  const loadProfileData = useCallback(async () => {
-    if (!targetUserId) return;
+  const loadProfileData = useCallback(
+    async (isInitial = true) => {
+      if (!targetUserId) return;
 
-    setLoading(true);
-    setError('');
-    setIsEditing(false);
+      if (isInitial) {
+        setLoading(true);
+        setError('');
+        setIsEditing(false);
+      }
 
-    try {
-      const [profileRes, postsRes] = await Promise.all([
-        isOwnProfile
-          ? usersApi.getMyProfile()
-          : usersApi.getUserById(targetUserId),
-        postsApi.getUserPosts(targetUserId, 1, 20),
-      ]);
-
-      setProfile(profileRes.user);
-      setPosts(postsRes.posts);
-
-      setName(profileRes.user.name || '');
-      setBio(profileRes.user.bio || '');
-      setLocation(profileRes.user.location || '');
-      setWebsite(profileRes.user.website || '');
-
-      if (!isOwnProfile) {
-        const [friendsRes, incomingRes, outgoingRes] = await Promise.all([
-          friendsApi.getFriendsList(),
-          friendsApi.getIncomingRequests(),
-          friendsApi.getOutgoingRequests(),
+      try {
+        const [profileRes, postsRes] = await Promise.all([
+          isOwnProfile
+            ? usersApi.getMyProfile()
+            : usersApi.getUserById(targetUserId),
+          postsApi.getUserPosts(targetUserId, 1, 20),
         ]);
 
-        if (friendsRes.friends.some((f) => f.friend.id === targetUserId)) {
-          setRelation({ type: 'friends' });
-        } else if (
-          outgoingRes.requests.some((r) => r.recipient._id === targetUserId)
-        ) {
-          setRelation({ type: 'outgoing' });
-        } else {
-          const inc = incomingRes.requests.find(
-            (r) => r.requester._id === targetUserId,
-          );
-          setRelation(
-            inc ? { type: 'incoming', requestId: inc.id } : { type: 'none' },
-          );
+        setProfile(profileRes.user);
+        setPosts(postsRes.posts);
+
+        if (isInitial) {
+          setName(profileRes.user.name || '');
+          setBio(profileRes.user.bio || '');
+          setLocation(profileRes.user.location || '');
+          setWebsite(profileRes.user.website || '');
         }
-      } else {
-        setRelation({ type: 'none' });
+
+        if (!isOwnProfile) {
+          const [friendsRes, incomingRes, outgoingRes] = await Promise.all([
+            friendsApi.getFriendsList(),
+            friendsApi.getIncomingRequests(),
+            friendsApi.getOutgoingRequests(),
+          ]);
+
+          if (friendsRes.friends.some((f) => f.friend.id === targetUserId)) {
+            setRelation({ type: 'friends' });
+          } else if (
+            outgoingRes.requests.some((r) => r.recipient._id === targetUserId)
+          ) {
+            setRelation({ type: 'outgoing' });
+          } else {
+            const inc = incomingRes.requests.find(
+              (r) => r.requester._id === targetUserId,
+            );
+            setRelation(
+              inc ? { type: 'incoming', requestId: inc.id } : { type: 'none' },
+            );
+          }
+        } else {
+          setRelation({ type: 'none' });
+        }
+      } catch (err) {
+        if (isInitial) setError(getErrorMessage(err, 'Failed to load profile.'));
+      } finally {
+        if (isInitial) setLoading(false);
       }
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to load profile.'));
-    } finally {
-      setLoading(false);
-    }
-  }, [isOwnProfile, targetUserId]);
+    },
+    [isOwnProfile, targetUserId],
+  );
 
   useEffect(() => {
-    void loadProfileData();
+    void loadProfileData(true);
   }, [loadProfileData]);
+
+  // Revalidate on tab focus & 20-second gentle polling while viewing profile
+  useAutoRefresh(() => loadProfileData(false), { intervalMs: 20000 });
 
   const validateImageFile = (file: File): string | null => {
     if (!file.type.startsWith('image/')) {

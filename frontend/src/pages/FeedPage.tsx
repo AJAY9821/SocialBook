@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { postsApi } from '../api/posts';
 import { getErrorMessage } from '../api/client';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import type { Pagination, Post } from '../types';
 import { CreatePostBox } from '../components/CreatePostBox';
 import { PostCard } from '../components/PostCard';
@@ -13,29 +14,35 @@ export function FeedPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState('');
 
-  const fetchFeed = useCallback(async (pageToLoad: number, append = false) => {
-    setError('');
-    if (append) {
-      setLoadingMore(true);
-    } else {
-      setLoading(true);
-    }
+  const fetchFeed = useCallback(
+    async (pageToLoad: number, append = false, isSilent = false) => {
+      if (!isSilent) setError('');
+      if (append) {
+        setLoadingMore(true);
+      } else if (!isSilent) {
+        setLoading(true);
+      }
 
-    try {
-      const res = await postsApi.getFeed(pageToLoad, 10);
-      setPosts((prev) => (append ? [...prev, ...res.posts] : res.posts));
-      setPagination(res.pagination);
-    } catch (err) {
-      setError(getErrorMessage(err, 'Failed to load feed.'));
-    } finally {
-      setLoading(false);
-      setLoadingMore(false);
-    }
-  }, []);
+      try {
+        const res = await postsApi.getFeed(pageToLoad, 10);
+        setPosts((prev) => (append ? [...prev, ...res.posts] : res.posts));
+        setPagination(res.pagination);
+      } catch (err) {
+        if (!isSilent) setError(getErrorMessage(err, 'Failed to load feed.'));
+      } finally {
+        if (!isSilent) setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
-    void fetchFeed(1, false);
+    void fetchFeed(1, false, false);
   }, [fetchFeed]);
+
+  // Revalidate on tab focus & 30-second gentle polling while viewing feed
+  useAutoRefresh(() => fetchFeed(1, false, true), { intervalMs: 30000 });
 
   const handlePostCreated = (newPost: Post) => {
     setPosts((prev) => [newPost, ...prev]);

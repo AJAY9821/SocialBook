@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Check,
@@ -13,6 +13,7 @@ import {
 import { postsApi } from '../api/posts';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import type { CommentItem } from '../types';
 import { Avatar } from './Avatar';
 
@@ -57,35 +58,40 @@ export function CommentSection({
 
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    let active = true;
-    const load = async () => {
-      setLoading(true);
-      setError('');
+  const fetchComments = useCallback(
+    async (isInitial = false) => {
+      if (isInitial) {
+        setLoading(true);
+        setError('');
+      }
       try {
         const res = await postsApi.getComments(postId, 1, 30);
-        if (active) {
-          setComments(res.comments);
-          // By default expand threads that already have replies
-          const initialExpanded: Record<string, boolean> = {};
+        setComments(res.comments);
+        // By default expand threads that have replies (preserving existing expanded state)
+        setExpandedThreads((prev) => {
+          const next = { ...prev };
           res.comments.forEach((c) => {
-            if (c.replies && c.replies.length > 0) {
-              initialExpanded[c.id] = true;
+            if (c.replies && c.replies.length > 0 && next[c.id] === undefined) {
+              next[c.id] = true;
             }
           });
-          setExpandedThreads(initialExpanded);
-        }
+          return next;
+        });
       } catch (err) {
-        if (active) setError(getErrorMessage(err, 'Failed to load comments.'));
+        if (isInitial) setError(getErrorMessage(err, 'Failed to load comments.'));
       } finally {
-        if (active) setLoading(false);
+        if (isInitial) setLoading(false);
       }
-    };
-    void load();
-    return () => {
-      active = false;
-    };
-  }, [postId]);
+    },
+    [postId],
+  );
+
+  useEffect(() => {
+    void fetchComments(true);
+  }, [fetchComments]);
+
+  // Auto-refresh when tab is focused, plus gentle 12s polling while comments drawer is open
+  useAutoRefresh(() => fetchComments(false), { intervalMs: 12000 });
 
   const handleAddComment = async (e: FormEvent) => {
     e.preventDefault();

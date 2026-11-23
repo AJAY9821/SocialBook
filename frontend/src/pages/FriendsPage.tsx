@@ -22,6 +22,7 @@ import type {
 } from '../types';
 import { Avatar } from '../components/Avatar';
 import { ConfirmUnfriendModal } from '../components/ConfirmUnfriendModal';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 
 type TabKey = 'friends' | 'requests' | 'find';
 
@@ -72,8 +73,8 @@ export function FriendsPage() {
   const [hasSearched, setHasSearched] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const loadAllFriendData = useCallback(async () => {
-    setLoading(true);
+  const loadAllFriendData = useCallback(async (isInitial = true) => {
+    if (isInitial) setLoading(true);
     setError('');
     try {
       const [friendsRes, incomingRes, outgoingRes] = await Promise.all([
@@ -92,15 +93,18 @@ export function FriendsPage() {
         }),
       );
     } catch (err) {
-      setError(getErrorMessage(err, 'Failed to load friends data.'));
+      if (isInitial) setError(getErrorMessage(err, 'Failed to load friends data.'));
     } finally {
-      setLoading(false);
+      if (isInitial) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void loadAllFriendData();
+    void loadAllFriendData(true);
   }, [loadAllFriendData]);
+
+  // Revalidate on tab focus & gentle 15-second polling while viewing friends/requests
+  useAutoRefresh(() => loadAllFriendData(false), { intervalMs: 15000 });
 
   const friendIdSet = useMemo(
     () => new Set(friends.map((f) => f.friend.id)),
