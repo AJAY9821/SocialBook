@@ -48,4 +48,5 @@ export class Post extends Document {
 export const PostSchema = SchemaFactory.createForClass(Post);
 
 PostSchema.index({ user: 1, createdAt: -1 });
+PostSchema.index({ user: 1, isDeleted: 1, createdAt: -1 });
 PostSchema.index({ originalPost: 1 });

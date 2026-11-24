@@ -18,3 +18,6 @@ export class RefreshToken extends Document {
 }
 
 export const RefreshTokenSchema = SchemaFactory.createForClass(RefreshToken);
+
+// Automatic TTL index: MongoDB deletes expired tokens in the background
+RefreshTokenSchema.index({ expiry: 1 }, { expireAfterSeconds: 0 });

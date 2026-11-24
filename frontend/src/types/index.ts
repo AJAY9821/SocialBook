@@ -73,6 +73,8 @@ export interface CommentItem {
   user: PopulatedUser;
   author: PopulatedUser; // Legacy alias for backward compatibility
   content: string;
+  commentType?: 'text' | 'gif';
+  gifUrl?: string | null;
   replies?: CommentItem[];
   createdAt: string;
   updatedAt: string;
@@ -82,6 +84,7 @@ export interface Pagination {
   page: number;
   limit: number;
   total: number;
+  totalPosts?: number;
   totalPages: number;
 }
 
@@ -160,6 +163,11 @@ export interface StoryViewerInfo {
 
 export interface StoryViewersResponse {
   count: number;
+  totalViewers?: number;
+  page?: number;
+  limit?: number;
+  totalPages?: number;
+  hasMore?: boolean;
   reactionsSummary?: Record<string, number>;
   viewers: StoryViewerInfo[];
 }

@@ -7,6 +7,7 @@ import {
   Param,
   Post,
   Put,
+  Query,
   Req,
   UploadedFile,
   UseGuards,
@@ -18,6 +19,7 @@ import {
   ApiBody,
   ApiConsumes,
   ApiParam,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -136,11 +138,23 @@ export class StoriesController {
   }
 
   @ApiParam({ name: 'id', description: 'Story ID' })
-  @ApiResponse({ status: 200, description: 'Get viewers for user story.' })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiResponse({ status: 200, description: 'Get paginated viewers for user story.' })
   @Get(':id/viewers')
-  async getStoryViewers(@Param('id') storyId: string, @Req() req: Request) {
+  async getStoryViewers(
+    @Param('id') storyId: string,
+    @Req() req: Request,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
     const currentUserId = req['user']._id.toString();
-    return this.storiesService.getStoryViewers(storyId, currentUserId);
+    return this.storiesService.getStoryViewers(
+      storyId,
+      currentUserId,
+      Number(page),
+      Number(limit),
+    );
   }
 
   @ApiParam({ name: 'id', description: 'Story ID' })

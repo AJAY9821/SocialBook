@@ -439,14 +439,18 @@ export class StoriesService {
     };
   }
 
-  async getStoryViewers(storyId: string, currentUserId: string) {
+  async getStoryViewers(
+    storyId: string,
+    currentUserId: string,
+    page = 1,
+    limit = 20,
+  ) {
     if (!Types.ObjectId.isValid(storyId)) {
       throw new BadRequestException('Invalid story ID.');
     }
 
     const story = await this.storyModel
       .findById(storyId)
-      .populate('viewers', 'name email avatarUrl')
       .populate('reactions.user', 'name email avatarUrl')
       .exec();
 
@@ -456,6 +460,27 @@ export class StoriesService {
 
     if (story.user.toString() !== currentUserId) {
       throw new ForbiddenException('Only the author can view story viewers.');
+    }
+
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(50, Math.max(1, Number(limit) || 20));
+    const allViewerIds = (story.viewers || []) as Types.ObjectId[];
+    const totalViewers = allViewerIds.length;
+    const totalPages = Math.ceil(totalViewers / safeLimit) || 1;
+    const skip = (safePage - 1) * safeLimit;
+
+    // Slice viewers for the requested page
+    const slicedViewerIds = allViewerIds.slice(skip, skip + safeLimit);
+
+    // Fetch user details for only the sliced viewers
+    const populatedUsers = await this.userModel
+      .find({ _id: { $in: slicedViewerIds } })
+      .select('name email avatarUrl')
+      .lean();
+
+    const usersMap = new Map<string, any>();
+    for (const u of populatedUsers) {
+      usersMap.set(u._id.toString(), u);
     }
 
     const reactionsMap = new Map<string, string>();
@@ -470,21 +495,31 @@ export class StoriesService {
       }
     }
 
-    const viewers = (story.viewers as any[]).map((v) => {
-      const vId = v._id.toString();
-      return {
-        id: vId,
-        name: v.name,
-        email: v.email,
-        avatarUrl: v.avatarUrl || '',
-        reaction: reactionsMap.get(vId) || null,
-      };
-    });
+    // Preserve the original order of viewers from the story
+    const viewers = slicedViewerIds
+      .map((id) => {
+        const idStr = id.toString();
+        const user = usersMap.get(idStr);
+        if (!user) return null;
+        return {
+          id: idStr,
+          name: user.name,
+          email: user.email,
+          avatarUrl: user.avatarUrl || '',
+          reaction: reactionsMap.get(idStr) || null,
+        };
+      })
+      .filter(Boolean);
 
     return {
       error: false,
       statusCode: HttpStatus.OK,
-      count: viewers.length,
+      totalViewers,
+      count: totalViewers,
+      page: safePage,
+      limit: safeLimit,
+      totalPages,
+      hasMore: safePage < totalPages,
       reactionsSummary,
       viewers,
     };

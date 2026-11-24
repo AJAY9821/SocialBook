@@ -29,3 +29,5 @@ export class Friendship extends Document {
 export const FriendshipSchema = SchemaFactory.createForClass(Friendship);
 
 FriendshipSchema.index({ requester: 1, recipient: 1 }, { unique: true });
+FriendshipSchema.index({ recipient: 1, status: 1, createdAt: -1 });
+FriendshipSchema.index({ requester: 1, status: 1, createdAt: -1 });

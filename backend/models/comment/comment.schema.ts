@@ -14,8 +14,19 @@ export class Comment extends Document {
   parentComment?: Types.ObjectId | null;
   parentId?: Types.ObjectId | null;
 
-  @Prop({ type: String, required: true, trim: true, maxlength: 2000 })
+  @Prop({ type: String, required: false, trim: true, maxlength: 2000, default: '' })
   content: string;
+
+  @Prop({
+    type: String,
+    enum: ['text', 'gif'],
+    default: 'text',
+    index: true,
+  })
+  commentType: string;
+
+  @Prop({ type: String, required: false, default: null })
+  gifUrl?: string | null;
 
   @Prop({ type: Boolean, default: false })
   isDeleted: boolean;

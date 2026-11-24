@@ -22,3 +22,6 @@ export class VerificationToken extends Document {
 
 export const VerificationTokenSchema =
   SchemaFactory.createForClass(VerificationToken);
+
+// Automatic TTL index: MongoDB deletes expired verification tokens in the background
+VerificationTokenSchema.index({ expiry: 1 }, { expireAfterSeconds: 0 });

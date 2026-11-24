@@ -98,10 +98,10 @@ export const storiesApi = {
     return data;
   },
 
-  async getStoryViewers(storyId: string) {
+  async getStoryViewers(storyId: string, page = 1, limit = 20) {
     const { data } = await apiClient.get<
       { error: boolean; statusCode: number } & StoryViewersResponse
-    >(`/stories/${storyId}/viewers`);
+    >(`/stories/${storyId}/viewers`, { params: { page, limit } });
     return data;
   },
 

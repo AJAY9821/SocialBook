@@ -60,6 +60,10 @@ export function StoryViewerModal({
   const [viewersList, setViewersList] = useState<StoryViewerInfo[]>([]);
   const [reactionsSummary, setReactionsSummary] = useState<Record<string, number>>({});
   const [loadingViewers, setLoadingViewers] = useState(false);
+  const [viewersPage, setViewersPage] = useState(1);
+  const [totalViewersCount, setTotalViewersCount] = useState(0);
+  const [hasMoreViewers, setHasMoreViewers] = useState(false);
+  const [loadingMoreViewers, setLoadingMoreViewers] = useState(false);
 
   // Delete story confirmation modal state (replaces browser window.confirm)
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -368,15 +372,38 @@ export function StoryViewerModal({
     setIsPaused(true);
     setShowViewersModal(true);
     setLoadingViewers(true);
+    setViewersPage(1);
 
     try {
-      const res = await storiesApi.getStoryViewers(currentStory.id);
+      const res = await storiesApi.getStoryViewers(currentStory.id, 1, 20);
       setViewersList(res.viewers || []);
+      setTotalViewersCount(res.totalViewers || res.count || 0);
+      setHasMoreViewers(Boolean(res.hasMore));
       setReactionsSummary(res.reactionsSummary || {});
     } catch (err) {
       console.error('Failed to load viewers:', err);
     } finally {
       setLoadingViewers(false);
+    }
+  };
+
+  // Load more viewers (pagination)
+  const handleLoadMoreViewers = async () => {
+    if (!currentStory || loadingMoreViewers || !hasMoreViewers) return;
+    setLoadingMoreViewers(true);
+    const nextPage = viewersPage + 1;
+    try {
+      const res = await storiesApi.getStoryViewers(currentStory.id, nextPage, 20);
+      setViewersList((prev) => [...prev, ...(res.viewers || [])]);
+      setViewersPage(nextPage);
+      setHasMoreViewers(Boolean(res.hasMore));
+      if (res.totalViewers) {
+        setTotalViewersCount(res.totalViewers);
+      }
+    } catch (err) {
+      console.error('Failed to load more viewers:', err);
+    } finally {
+      setLoadingMoreViewers(false);
     }
   };
 
@@ -722,7 +749,7 @@ export function StoryViewerModal({
               <div className="flex items-center gap-2">
                 <Eye className="h-4 w-4 text-blue-500" />
                 <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
-                  Story Viewers ({viewersList.length})
+                  Story Viewers ({totalViewersCount || viewersList.length})
                 </h3>
               </div>
               <button
@@ -794,6 +821,27 @@ export function StoryViewerModal({
                     )}
                   </div>
                 ))
+              )}
+
+              {/* Load More Viewers Pagination */}
+              {hasMoreViewers && !loadingViewers && (
+                <div className="pt-2.5 pb-1 text-center">
+                  <button
+                    type="button"
+                    disabled={loadingMoreViewers}
+                    onClick={handleLoadMoreViewers}
+                    className="w-full py-2 px-3 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    {loadingMoreViewers ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        <span>Loading more viewers...</span>
+                      </>
+                    ) : (
+                      <span>Load more viewers ({Math.max(0, totalViewersCount - viewersList.length)} remaining)</span>
+                    )}
+                  </button>
+                </div>
               )}
             </div>
           </div>

@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Post } from 'models/post';
 import { FRIENDSHIP_STATUS, Friendship } from 'models/friendship';
 import { Like } from 'models/like';
@@ -412,6 +414,31 @@ export class PostsService {
 
     post.isDeleted = true;
     await post.save();
+
+    // Cascade: clean up saved bookmarks pointing to this deleted post
+    try {
+      await this.savedPostModel.deleteMany({ post: post._id });
+    } catch {
+      // Non-blocking cascade cleanup
+    }
+
+    // Clean up local media files from disk to prevent storage leaks
+    const mediaUrls = [post.imageUrl, post.videoUrl].filter(Boolean) as string[];
+    for (const url of mediaUrls) {
+      if (url.includes('/uploads/posts/')) {
+        try {
+          const subPath = url.split('/uploads/posts/')[1];
+          if (subPath) {
+            const filePath = path.join(process.cwd(), 'uploads', 'posts', subPath);
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+            }
+          }
+        } catch {
+          // Non-blocking file unlink
+        }
+      }
+    }
 
     return {
       error: false,

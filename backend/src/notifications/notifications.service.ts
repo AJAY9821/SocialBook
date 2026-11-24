@@ -68,10 +68,11 @@ export class NotificationsService {
       .limit(10)
       .lean();
 
-    // 2. Fetch the user's posts to track likes and comments
+    // 2. Fetch the user's active posts to track likes and comments (exclude deleted posts)
     const userPosts = await this.postModel
       .find({
         $or: [{ user: userObjectId }, { author: userObjectId }],
+        isDeleted: false,
       })
       .select('_id content')
       .lean();

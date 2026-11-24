@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   CornerDownRight,
+  Loader2,
   Pencil,
   Send,
   Trash2,
@@ -16,6 +17,8 @@ import { useAuth } from '../context/AuthContext';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import type { CommentItem } from '../types';
 import { Avatar } from './Avatar';
+import { EmojiPickerPopover } from './EmojiPickerPopover';
+import { GifPickerModal } from './GifPickerModal';
 
 interface CommentSectionProps {
   postId: string;
@@ -40,8 +43,18 @@ export function CommentSection({
   const { user } = useAuth();
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalTopComments, setTotalTopComments] = useState(0);
   const [newComment, setNewComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // GIF and Emoji state
+  const [selectedGif, setSelectedGif] = useState<string | null>(null);
+  const [replyGif, setReplyGif] = useState<string | null>(null);
+  const [isGifModalOpen, setIsGifModalOpen] = useState(false);
+  const [gifTarget, setGifTarget] = useState<'comment' | 'reply'>('comment');
 
   // Editing state (works for both comments and replies)
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -59,14 +72,31 @@ export function CommentSection({
   const [error, setError] = useState('');
 
   const fetchComments = useCallback(
-    async (isInitial = false) => {
-      if (isInitial) {
+    async (pageToLoad = 1, append = false, isSilent = false) => {
+      if (!isSilent && !append) {
         setLoading(true);
         setError('');
+      } else if (append) {
+        setLoadingMore(true);
       }
+
       try {
-        const res = await postsApi.getComments(postId, 1, 30);
-        setComments(res.comments);
+        const res = await postsApi.getComments(postId, pageToLoad, 20);
+
+        if (append) {
+          setComments((prev) => {
+            const existingIds = new Set(prev.map((c) => c.id));
+            const newComments = res.comments.filter((c) => !existingIds.has(c.id));
+            return [...prev, ...newComments];
+          });
+        } else {
+          setComments(res.comments);
+        }
+
+        setPage(pageToLoad);
+        setTotalPages(res.pagination?.totalPages || 1);
+        setTotalTopComments(res.pagination?.total ?? res.comments.length);
+
         // By default expand threads that have replies (preserving existing expanded state)
         setExpandedThreads((prev) => {
           const next = { ...prev };
@@ -78,31 +108,47 @@ export function CommentSection({
           return next;
         });
       } catch (err) {
-        if (isInitial) setError(getErrorMessage(err, 'Failed to load comments.'));
+        if (!isSilent) setError(getErrorMessage(err, 'Failed to load comments.'));
       } finally {
-        if (isInitial) setLoading(false);
+        if (!isSilent && !append) setLoading(false);
+        if (append) setLoadingMore(false);
       }
     },
     [postId],
   );
 
   useEffect(() => {
-    void fetchComments(true);
+    void fetchComments(1, false, false);
   }, [fetchComments]);
 
-  // Auto-refresh when tab is focused, plus gentle 12s polling while comments drawer is open
-  useAutoRefresh(() => fetchComments(false), { intervalMs: 12000 });
+  // Auto-refresh when tab is focused, plus gentle 12s polling while comments drawer is open (only refreshes page 1)
+  useAutoRefresh(() => {
+    if (page === 1) {
+      void fetchComments(1, false, true);
+    }
+  }, { intervalMs: 12000 });
+
+  const handleLoadMoreComments = async () => {
+    if (loadingMore || page >= totalPages) return;
+    await fetchComments(page + 1, true, false);
+  };
 
   const handleAddComment = async (e: FormEvent) => {
     e.preventDefault();
-    if (!newComment.trim()) return;
+    if (!newComment.trim() && !selectedGif) return;
 
     setError('');
     setSubmitting(true);
     try {
-      const res = await postsApi.addComment(postId, newComment.trim());
+      const res = await postsApi.addComment(
+        postId,
+        newComment.trim(),
+        undefined,
+        selectedGif || undefined,
+      );
       setComments((prev) => [{ ...res.comment, replies: [] }, ...prev]);
       setNewComment('');
+      setSelectedGif(null);
       onCountChange(1);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to add comment.'));
@@ -112,12 +158,17 @@ export function CommentSection({
   };
 
   const handleAddReply = async (parentCommentId: string) => {
-    if (!replyText.trim()) return;
+    if (!replyText.trim() && !replyGif) return;
 
     setError('');
     setSubmittingReply(true);
     try {
-      const res = await postsApi.addComment(postId, replyText.trim(), parentCommentId);
+      const res = await postsApi.addComment(
+        postId,
+        replyText.trim(),
+        parentCommentId,
+        replyGif || undefined,
+      );
       setComments((prev) =>
         prev.map((c) => {
           if (c.id === parentCommentId) {
@@ -130,6 +181,7 @@ export function CommentSection({
         }),
       );
       setReplyText('');
+      setReplyGif(null);
       setReplyingToId(null);
       setExpandedThreads((prev) => ({ ...prev, [parentCommentId]: true }));
       onCountChange(1);
@@ -211,24 +263,66 @@ export function CommentSection({
   return (
     <div className="mt-3 border-t border-slate-100 dark:border-slate-800 pt-3 space-y-3">
       {/* Top-level Add comment form */}
-      <form onSubmit={handleAddComment} className="flex items-center gap-2">
-        <Avatar name={user?.name} avatarUrl={user?.avatarUrl} size="sm" />
-        <input
-          type="text"
-          value={newComment}
-          onChange={(e) => setNewComment(e.target.value)}
-          placeholder="Write a comment..."
-          className="w-full rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30"
-        />
-        <button
-          type="submit"
-          disabled={submitting || !newComment.trim()}
-          className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer shrink-0"
-          aria-label="Send comment"
-        >
-          <Send className="h-4 w-4" />
-        </button>
-      </form>
+      <div className="space-y-2">
+        {selectedGif && (
+          <div className="ml-10 relative inline-block rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-900 shadow-sm animate-in fade-in zoom-in-95">
+            <img
+              src={selectedGif}
+              alt="Selected GIF preview"
+              className="max-h-36 max-w-xs object-cover"
+            />
+            <button
+              type="button"
+              onClick={() => setSelectedGif(null)}
+              className="absolute top-1.5 right-1.5 rounded-full bg-black/70 p-1 text-white hover:bg-black transition cursor-pointer"
+              title="Remove GIF"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+
+        <form onSubmit={handleAddComment} className="flex items-center gap-2">
+          <Avatar name={user?.name} avatarUrl={user?.avatarUrl} size="sm" />
+          <div className="relative flex-1 flex items-center">
+            <input
+              type="text"
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+              placeholder={selectedGif ? "Add a caption to your GIF..." : "Write a comment..."}
+              className="w-full rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 pl-3.5 pr-20 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30"
+            />
+            <div className="absolute right-2 flex items-center gap-1">
+              <EmojiPickerPopover
+                onSelect={(emoji) => setNewComment((prev) => prev + emoji)}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setGifTarget('comment');
+                  setIsGifModalOpen(true);
+                }}
+                className={`flex items-center justify-center rounded-lg px-1.5 py-0.5 text-[10px] font-bold transition cursor-pointer ${
+                  selectedGif
+                    ? 'bg-pink-100 text-pink-600 dark:bg-pink-950/50 dark:text-pink-400'
+                    : 'text-slate-500 hover:bg-slate-200/70 hover:text-pink-600 dark:text-slate-400 dark:hover:bg-slate-700/60 dark:hover:text-pink-400'
+                }`}
+                title="Add animated GIF"
+              >
+                GIF
+              </button>
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={submitting || (!newComment.trim() && !selectedGif)}
+            className="rounded-full bg-blue-600 p-2 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer shrink-0"
+            aria-label="Send comment"
+          >
+            <Send className="h-4 w-4" />
+          </button>
+        </form>
+      </div>
 
       {error && (
         <div className="rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 px-3 py-1.5 text-xs text-red-700 dark:text-red-300">
@@ -336,9 +430,23 @@ export function CommentSection({
                           </button>
                         </div>
                       ) : (
-                        <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-800 dark:text-slate-200 break-words">
-                          {comment.content}
-                        </p>
+                        <div>
+                          {comment.content && (
+                            <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-800 dark:text-slate-200 break-words">
+                              {comment.content}
+                            </p>
+                          )}
+                          {comment.gifUrl && (
+                            <div className="mt-2 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 max-w-xs sm:max-w-sm">
+                              <img
+                                src={comment.gifUrl}
+                                alt="Comment GIF"
+                                loading="lazy"
+                                className="w-full max-h-56 object-contain bg-slate-950/20 rounded-xl"
+                              />
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
 
@@ -384,44 +492,85 @@ export function CommentSection({
 
                 {/* Inline Reply Input Box */}
                 {isReplying && (
-                  <div className="ml-8 sm:ml-10 mt-2 flex items-center gap-2">
-                    <Avatar name={user?.name} avatarUrl={user?.avatarUrl} size="xs" />
-                    <div className="relative flex-1">
-                      <input
-                        type="text"
-                        autoFocus
-                        value={replyText}
-                        onChange={(e) => setReplyText(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            void handleAddReply(comment.id);
-                          }
-                        }}
-                        placeholder={`Reply to @${commentUser.name}...`}
-                        className="w-full rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3 py-1.5 pr-8 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30"
-                      />
+                  <div className="ml-8 sm:ml-10 mt-2 space-y-1.5">
+                    {replyGif && (
+                      <div className="relative inline-block rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-900 shadow-xs animate-in fade-in">
+                        <img
+                          src={replyGif}
+                          alt="Reply GIF preview"
+                          className="max-h-24 max-w-[180px] object-cover"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setReplyGif(null)}
+                          className="absolute top-1 right-1 rounded-full bg-black/70 p-0.5 text-white hover:bg-black transition cursor-pointer"
+                          title="Remove GIF"
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <Avatar name={user?.name} avatarUrl={user?.avatarUrl} size="xs" />
+                      <div className="relative flex-1 flex items-center">
+                        <input
+                          type="text"
+                          autoFocus
+                          value={replyText}
+                          onChange={(e) => setReplyText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault();
+                              void handleAddReply(comment.id);
+                            }
+                          }}
+                          placeholder={replyGif ? "Add caption to GIF..." : `Reply to @${commentUser.name}...`}
+                          className="w-full rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 pl-3 pr-20 py-1.5 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30"
+                        />
+                        <div className="absolute right-7 flex items-center gap-0.5">
+                          <EmojiPickerPopover
+                            onSelect={(emoji) => setReplyText((prev) => prev + emoji)}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGifTarget('reply');
+                              setIsGifModalOpen(true);
+                            }}
+                            className={`flex items-center justify-center rounded px-1 py-0.5 text-[9px] font-bold transition cursor-pointer ${
+                              replyGif
+                                ? 'bg-pink-100 text-pink-600 dark:bg-pink-950/50 dark:text-pink-400'
+                                : 'text-slate-400 hover:text-pink-600 dark:hover:text-pink-400'
+                            }`}
+                            title="Attach GIF"
+                          >
+                            GIF
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={submittingReply || (!replyText.trim() && !replyGif)}
+                          onClick={() => void handleAddReply(comment.id)}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 disabled:opacity-40 cursor-pointer"
+                          title="Send reply"
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                       <button
                         type="button"
-                        disabled={submittingReply || !replyText.trim()}
-                        onClick={() => void handleAddReply(comment.id)}
-                        className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 disabled:opacity-40 cursor-pointer"
-                        title="Send reply"
+                        onClick={() => {
+                          setReplyingToId(null);
+                          setReplyText('');
+                          setReplyGif(null);
+                        }}
+                        className="rounded-full p-1 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                        title="Cancel reply"
                       >
-                        <Send className="h-3.5 w-3.5" />
+                        <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setReplyingToId(null);
-                        setReplyText('');
-                      }}
-                      className="rounded-full p-1 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                      title="Cancel reply"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
                   </div>
                 )}
 
@@ -511,9 +660,23 @@ export function CommentSection({
                                   </button>
                                 </div>
                               ) : (
-                                <p className="mt-0.5 whitespace-pre-wrap text-xs text-slate-800 dark:text-slate-200 break-words">
-                                  {reply.content}
-                                </p>
+                                <div>
+                                  {reply.content && (
+                                    <p className="mt-0.5 whitespace-pre-wrap text-xs text-slate-800 dark:text-slate-200 break-words">
+                                      {reply.content}
+                                    </p>
+                                  )}
+                                  {reply.gifUrl && (
+                                    <div className="mt-1.5 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 max-w-[240px] sm:max-w-[280px]">
+                                      <img
+                                        src={reply.gifUrl}
+                                        alt="Reply GIF"
+                                        loading="lazy"
+                                        className="w-full max-h-44 object-contain bg-slate-950/20 rounded-lg"
+                                      />
+                                    </div>
+                                  )}
+                                </div>
                               )}
                             </div>
 
@@ -540,8 +703,42 @@ export function CommentSection({
               </div>
             );
           })}
+
+          {/* View Earlier Comments Pagination */}
+          {page < totalPages && !loading && (
+            <div className="pt-2 text-center">
+              <button
+                type="button"
+                disabled={loadingMore}
+                onClick={handleLoadMoreComments}
+                className="w-full py-2 px-3 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {loadingMore ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Loading earlier comments...</span>
+                  </>
+                ) : (
+                  <span>View earlier comments ({Math.max(0, totalTopComments - comments.length)} remaining)</span>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       )}
+
+      {/* Global GIF Picker Modal */}
+      <GifPickerModal
+        isOpen={isGifModalOpen}
+        onClose={() => setIsGifModalOpen(false)}
+        onSelect={(url) => {
+          if (gifTarget === 'reply') {
+            setReplyGif(url);
+          } else {
+            setSelectedGif(url);
+          }
+        }}
+      />
     </div>
   );
 }

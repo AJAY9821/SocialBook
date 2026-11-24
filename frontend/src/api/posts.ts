@@ -178,6 +178,7 @@ export const postsApi = {
     postId: string,
     content: string,
     parentCommentId?: string,
+    gifUrl?: string,
   ) {
     const { data } = await apiClient.post<{
       error: boolean;
@@ -185,9 +186,11 @@ export const postsApi = {
       msg: string;
       comment: CommentItem;
     }>(`/comments/${postId}`, {
-      content,
+      content: content || '',
       parentComment: parentCommentId,
       parentId: parentCommentId,
+      gifUrl: gifUrl || undefined,
+      commentType: gifUrl ? 'gif' : 'text',
     });
     return data;
   },

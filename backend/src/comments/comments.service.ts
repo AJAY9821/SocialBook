@@ -57,11 +57,22 @@ export class CommentsService {
         (parentComment._id as Types.ObjectId);
     }
 
+    const rawContent = createCommentDto.content?.trim() || '';
+    const gifUrl = createCommentDto.gifUrl?.trim() || null;
+
+    if (!rawContent && !gifUrl) {
+      throw new BadRequestException('Comment must contain text or a GIF.');
+    }
+
+    const commentType = gifUrl ? 'gif' : 'text';
+
     const comment = await this.commentModel.create({
       post: post._id,
       user: new Types.ObjectId(userId),
       parentComment: resolvedParentId,
-      content: createCommentDto.content,
+      content: rawContent,
+      commentType,
+      gifUrl,
     });
 
     await this.postModel.findByIdAndUpdate(post._id, {
@@ -263,7 +274,9 @@ export class CommentsService {
       parentId: parent ? parent.toString() : null, // Backward compatible
       user,
       author: user, // Backward compatible
-      content: obj.content,
+      content: obj.content || '',
+      commentType: obj.commentType || (obj.gifUrl ? 'gif' : 'text'),
+      gifUrl: obj.gifUrl || null,
       replies,
       createdAt: obj.createdAt,
       updatedAt: obj.updatedAt,

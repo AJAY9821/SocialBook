@@ -41,6 +41,10 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
   const [reactionsCount, setReactionsCount] = useState<Record<string, number>>({});
   const [selectedReaction, setSelectedReaction] = useState<string>('all');
   const [loading, setLoading] = useState<boolean>(true);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
+  const [page, setPage] = useState<number>(1);
+  const [totalPages, setTotalPages] = useState<number>(1);
+  const [totalForFilter, setTotalForFilter] = useState<number>(0);
   const [error, setError] = useState<string>('');
 
   // Close on Escape key press
@@ -58,6 +62,7 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
   useEffect(() => {
     if (isOpen) {
       setSelectedReaction('all');
+      setPage(1);
     }
   }, [isOpen, postId]);
 
@@ -67,19 +72,23 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
 
     let active = true;
     setLoading(true);
+    setLoadingMore(false);
+    setPage(1);
     setError('');
 
-    const fetchLikes = async () => {
+    const fetchInitialLikes = async () => {
       try {
         const res = await postsApi.getPostLikes(
           postId,
           1,
-          50,
+          20,
           selectedReaction === 'all' ? undefined : selectedReaction,
         );
         if (active) {
           setLikes(res.likes || []);
           setLikesCount(res.likesCount || 0);
+          setTotalPages(res.pagination?.totalPages || 1);
+          setTotalForFilter(res.pagination?.total ?? res.likesCount ?? 0);
           if (res.reactionsCount) {
             setReactionsCount(res.reactionsCount);
           }
@@ -93,12 +102,37 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
       }
     };
 
-    void fetchLikes();
+    void fetchInitialLikes();
 
     return () => {
       active = false;
     };
   }, [isOpen, postId, selectedReaction]);
+
+  // Load more likes for current reaction filter
+  const handleLoadMore = async () => {
+    if (loadingMore || page >= totalPages || !postId) return;
+
+    setLoadingMore(true);
+    const nextPage = page + 1;
+
+    try {
+      const res = await postsApi.getPostLikes(
+        postId,
+        nextPage,
+        20,
+        selectedReaction === 'all' ? undefined : selectedReaction,
+      );
+      setLikes((prev) => [...prev, ...(res.likes || [])]);
+      setPage(nextPage);
+      setTotalPages(res.pagination?.totalPages || 1);
+      setTotalForFilter(res.pagination?.total ?? res.likesCount ?? 0);
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to load more reactions.'));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -238,6 +272,27 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
                 </div>
               );
             })
+          )}
+
+          {/* Load More Likes Pagination */}
+          {page < totalPages && !loading && (
+            <div className="pt-3 pb-1 text-center">
+              <button
+                type="button"
+                disabled={loadingMore}
+                onClick={handleLoadMore}
+                className="w-full py-2 px-3 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 rounded-xl transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {loadingMore ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>Loading more reactions...</span>
+                  </>
+                ) : (
+                  <span>Load more reactions ({Math.max(0, totalForFilter - likes.length)} remaining)</span>
+                )}
+              </button>
+            </div>
           )}
         </div>
       </div>

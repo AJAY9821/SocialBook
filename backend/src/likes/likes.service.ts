@@ -76,27 +76,43 @@ export class LikesService {
     }
 
     // Case 3: Brand new reaction
-    await this.likeModel.create({
-      user: userObjectId,
-      post: post._id,
-      reactionType,
-    });
+    try {
+      await this.likeModel.create({
+        user: userObjectId,
+        post: post._id,
+        reactionType,
+      });
 
-    const updatedPost = await this.postModel.findByIdAndUpdate(
-      post._id,
-      { $inc: { likesCount: 1 } },
-      { new: true },
-    );
+      const updatedPost = await this.postModel.findByIdAndUpdate(
+        post._id,
+        { $inc: { likesCount: 1 } },
+        { new: true },
+      );
 
-    return {
-      error: false,
-      statusCode: HttpStatus.CREATED,
-      action: 'created',
-      msg: `Reacted with ${reactionType}.`,
-      isLikedByMe: true,
-      myReaction: reactionType,
-      likesCount: updatedPost?.likesCount ?? post.likesCount + 1,
-    };
+      return {
+        error: false,
+        statusCode: HttpStatus.CREATED,
+        action: 'created',
+        msg: `Reacted with ${reactionType}.`,
+        isLikedByMe: true,
+        myReaction: reactionType,
+        likesCount: updatedPost?.likesCount ?? post.likesCount + 1,
+      };
+    } catch (err: any) {
+      // Handle rapid double-tap race condition: if concurrent request already inserted like
+      if (err?.code === 11000) {
+        return {
+          error: false,
+          statusCode: HttpStatus.OK,
+          action: 'created',
+          msg: `Reacted with ${reactionType}.`,
+          isLikedByMe: true,
+          myReaction: reactionType,
+          likesCount: post.likesCount,
+        };
+      }
+      throw err;
+    }
   }
 
   // Backward compatibility alias for likePost

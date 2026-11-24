@@ -22,3 +22,6 @@ export class AccessToken extends Document {
 }
 
 export const AccessTokenSchema = SchemaFactory.createForClass(AccessToken);
+
+// Automatic TTL index: MongoDB deletes expired tokens in the background
+AccessTokenSchema.index({ expiry: 1 }, { expireAfterSeconds: 0 });

@@ -293,6 +293,10 @@ export function ChatPage() {
   } | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [chatPage, setChatPage] = useState(1);
+  const [chatTotalPages, setChatTotalPages] = useState(1);
+  const [hasMoreOlder, setHasMoreOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
   const [chatError, setChatError] = useState('');
@@ -322,6 +326,7 @@ export function ChatPage() {
   }, [friendId]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   const isFirstLoadRef = useRef(true);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -438,25 +443,45 @@ export function ChatPage() {
   // Initial load of conversations
   useEffect(() => {
     loadConversations(true);
-    const interval = setInterval(() => loadConversations(false), 8000);
+    const interval = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        loadConversations(false);
+      }
+    }, 8000);
     return () => clearInterval(interval);
   }, [loadConversations]);
 
   // Load active chat history
   const loadChatHistory = useCallback(
     async (targetFriendId: string, isPoll = false) => {
-      if (!isPoll) setLoadingMessages(true);
+      if (!isPoll) {
+        setLoadingMessages(true);
+        setChatPage(1);
+      }
       setChatError('');
       try {
-        const res = await chatApi.getChatHistory(targetFriendId);
+        const res = await chatApi.getChatHistory(targetFriendId, 1, 30);
         setActiveFriend(res.friend);
-        setMessages(res.messages);
         setIsBlockedByMe(Boolean(res.isBlockedByMe));
         setIsBlockedByOther(Boolean(res.isBlockedByOther));
 
-        if (!isPoll || isFirstLoadRef.current) {
-          setTimeout(() => scrollToBottom('auto'), 50);
-          isFirstLoadRef.current = false;
+        if (!isPoll) {
+          setMessages(res.messages);
+          setChatPage(1);
+          setChatTotalPages(res.pagination ? res.pagination.totalPages : 1);
+          setHasMoreOlder(res.pagination ? res.pagination.page < res.pagination.totalPages : false);
+          if (isFirstLoadRef.current) {
+            setTimeout(() => scrollToBottom('auto'), 50);
+            isFirstLoadRef.current = false;
+          }
+        } else {
+          // In polling mode: smart merge newly arrived messages without discarding older loaded messages
+          setMessages((prev) => {
+            const existingIds = new Set(prev.map((m) => m.id));
+            const newIncoming = res.messages.filter((m) => !existingIds.has(m.id));
+            if (newIncoming.length === 0) return prev;
+            return [...prev, ...newIncoming];
+          });
         }
       } catch (err) {
         setChatError(
@@ -472,6 +497,49 @@ export function ChatPage() {
     [],
   );
 
+  // Load older messages (reverse-scroll pagination)
+  const handleLoadOlderMessages = useCallback(async () => {
+    if (!friendId || loadingOlder || !hasMoreOlder) return;
+
+    const container = chatContainerRef.current;
+    const prevScrollHeight = container ? container.scrollHeight : 0;
+    const prevScrollTop = container ? container.scrollTop : 0;
+
+    setLoadingOlder(true);
+    const nextPage = chatPage + 1;
+
+    try {
+      const res = await chatApi.getChatHistory(friendId, nextPage, 30);
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id));
+        const olderUnique = res.messages.filter((m) => !existingIds.has(m.id));
+        return [...olderUnique, ...prev];
+      });
+      setChatPage(nextPage);
+      setChatTotalPages(res.pagination ? res.pagination.totalPages : 1);
+      setHasMoreOlder(res.pagination ? res.pagination.page < res.pagination.totalPages : false);
+
+      // Preserve scroll position so view doesn't jump
+      requestAnimationFrame(() => {
+        if (container) {
+          container.scrollTop = container.scrollHeight - prevScrollHeight + prevScrollTop;
+        }
+      });
+    } catch (err) {
+      console.error('Failed to load older messages:', err);
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [friendId, loadingOlder, hasMoreOlder, chatPage]);
+
+  // Handle scroll in chat container (auto-trigger when user reaches near top)
+  const handleChatScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop } = e.currentTarget;
+    if (scrollTop <= 20 && hasMoreOlder && !loadingOlder) {
+      void handleLoadOlderMessages();
+    }
+  };
+
   // When friendId param changes, load that friend's chat
   useEffect(() => {
     if (friendId) {
@@ -486,9 +554,11 @@ export function ChatPage() {
       // Instantly clear global navbar badge
       window.dispatchEvent(new Event('chat:read'));
 
-      // Poll every 3.5 seconds for incoming messages from this friend
+      // Poll every 3.5 seconds for incoming messages from this friend (only when tab is visible)
       const pollTimer = setInterval(() => {
-        loadChatHistory(friendId, true);
+        if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+          loadChatHistory(friendId, true);
+        }
       }, 3500);
 
       return () => clearInterval(pollTimer);
@@ -910,8 +980,32 @@ export function ChatPage() {
                 </div>
               )}
 
-              {/* Messages Thread */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              {/* Messages Thread Container (with reverse-scroll pagination) */}
+              <div
+                ref={chatContainerRef}
+                onScroll={handleChatScroll}
+                className="flex-1 overflow-y-auto p-4 space-y-3"
+              >
+                {/* Load Older Messages Banner / Trigger */}
+                {hasMoreOlder && (
+                  <div className="text-center py-1">
+                    <button
+                      type="button"
+                      disabled={loadingOlder}
+                      onClick={handleLoadOlderMessages}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-900/60 shadow-2xs transition cursor-pointer disabled:opacity-50"
+                    >
+                      {loadingOlder ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-600 dark:text-blue-400" />
+                          <span>Loading older messages...</span>
+                        </>
+                      ) : (
+                        <span>Load older messages</span>
+                      )}
+                    </button>
+                  </div>
+                )}
                 {loadingMessages ? (
                   <div className="py-20 text-center text-xs text-slate-400 dark:text-slate-500">
                     Loading messages...

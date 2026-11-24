@@ -53,9 +53,19 @@ export function ProfilePage() {
 
   const [profile, setProfile] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
+  const [postsPage, setPostsPage] = useState(1);
+  const [hasMorePosts, setHasMorePosts] = useState(false);
+  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
+  const [totalPostsCount, setTotalPostsCount] = useState(0);
+
   const [activeTab, setActiveTab] = useState<'posts' | 'saved'>('posts');
   const [savedPosts, setSavedPosts] = useState<Post[]>([]);
+  const [savedPage, setSavedPage] = useState(1);
+  const [hasMoreSaved, setHasMoreSaved] = useState(false);
+  const [loadingMoreSaved, setLoadingMoreSaved] = useState(false);
+  const [totalSavedCount, setTotalSavedCount] = useState(0);
   const [loadingSaved, setLoadingSaved] = useState(false);
+
   const [relation, setRelation] = useState<RelationState>({ type: 'none' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -91,13 +101,16 @@ export function ProfilePage() {
           isOwnProfile
             ? usersApi.getMyProfile()
             : usersApi.getUserById(targetUserId),
-          postsApi.getUserPosts(targetUserId, 1, 20),
+          postsApi.getUserPosts(targetUserId, 1, 10),
         ]);
 
         setProfile(profileRes.user);
         setIsBlockedByMe(Boolean((profileRes as any).isBlockedByMe || profileRes.user.isBlockedByMe));
         setIsBlockedByOther(Boolean((profileRes as any).isBlockedByOther || profileRes.user.isBlockedByOther));
         setPosts(postsRes.posts);
+        setPostsPage(1);
+        setHasMorePosts(postsRes.pagination ? postsRes.pagination.page < postsRes.pagination.totalPages : false);
+        setTotalPostsCount(postsRes.pagination?.total ?? postsRes.pagination?.totalPosts ?? postsRes.posts.length);
 
         if (isInitial) {
           setName(profileRes.user.name || '');
@@ -146,14 +159,36 @@ export function ProfilePage() {
   // Revalidate on tab focus & 20-second gentle polling while viewing profile
   useAutoRefresh(() => loadProfileData(false), { intervalMs: 20000 });
 
+  const handleLoadMorePosts = async () => {
+    if (loadingMorePosts || !hasMorePosts || !targetUserId) return;
+    setLoadingMorePosts(true);
+    const nextPage = postsPage + 1;
+    try {
+      const res = await postsApi.getUserPosts(targetUserId, nextPage, 10);
+      setPosts((prev) => [...prev, ...res.posts]);
+      setPostsPage(nextPage);
+      setHasMorePosts(res.pagination ? res.pagination.page < res.pagination.totalPages : false);
+      if (res.pagination?.total !== undefined || res.pagination?.totalPosts !== undefined) {
+        setTotalPostsCount(res.pagination.total ?? res.pagination.totalPosts ?? 0);
+      }
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to load more posts.'));
+    } finally {
+      setLoadingMorePosts(false);
+    }
+  };
+
   // Fetch saved posts when 'Saved' tab is selected
   useEffect(() => {
     if (isOwnProfile && activeTab === 'saved') {
       setLoadingSaved(true);
+      setSavedPage(1);
       postsApi
-        .getSavedPosts(1, 20)
+        .getSavedPosts(1, 10)
         .then((res) => {
           setSavedPosts(res.posts);
+          setHasMoreSaved(res.pagination ? res.pagination.page < res.pagination.totalPages : false);
+          setTotalSavedCount(res.pagination?.total ?? res.pagination?.totalPosts ?? res.posts.length);
         })
         .catch((err) => {
           console.error('Failed to load saved posts in profile:', err);
@@ -163,6 +198,25 @@ export function ProfilePage() {
         });
     }
   }, [isOwnProfile, activeTab]);
+
+  const handleLoadMoreSaved = async () => {
+    if (loadingMoreSaved || !hasMoreSaved) return;
+    setLoadingMoreSaved(true);
+    const nextPage = savedPage + 1;
+    try {
+      const res = await postsApi.getSavedPosts(nextPage, 10);
+      setSavedPosts((prev) => [...prev, ...res.posts]);
+      setSavedPage(nextPage);
+      setHasMoreSaved(res.pagination ? res.pagination.page < res.pagination.totalPages : false);
+      if (res.pagination?.total !== undefined || res.pagination?.totalPosts !== undefined) {
+        setTotalSavedCount(res.pagination.total ?? res.pagination.totalPosts ?? 0);
+      }
+    } catch (err) {
+      setError(getErrorMessage(err, 'Failed to load more saved posts.'));
+    } finally {
+      setLoadingMoreSaved(false);
+    }
+  };
 
   // Auto-dismiss status message after 4 seconds
   useEffect(() => {
@@ -731,7 +785,7 @@ export function ProfilePage() {
             >
               <span>Your Posts</span>
               <span className="rounded-full bg-slate-200 dark:bg-slate-700 px-2 py-0.5 text-xs">
-                {posts.length}
+                {totalPostsCount || posts.length}
               </span>
             </button>
 
@@ -746,16 +800,16 @@ export function ProfilePage() {
             >
               <Bookmark className="h-4 w-4" />
               <span>Saved Posts</span>
-              {savedPosts.length > 0 && (
+              {(totalSavedCount > 0 || savedPosts.length > 0) && (
                 <span className="rounded-full bg-slate-200 dark:bg-slate-700 px-2 py-0.5 text-xs">
-                  {savedPosts.length}
+                  {totalSavedCount || savedPosts.length}
                 </span>
               )}
             </button>
           </div>
         ) : (
           <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">
-            {profile.name}'s Posts ({posts.length})
+            {profile.name}'s Posts ({totalPostsCount || posts.length})
           </h2>
         )}
 
@@ -765,15 +819,37 @@ export function ProfilePage() {
               No posts yet.
             </div>
           ) : (
-            posts.map((post) => (
-              <PostCard
-                key={post.id}
-                post={post}
-                onPostUpdated={handlePostUpdated}
-                onPostDeleted={handlePostDeleted}
-                onAuthorUnfriended={() => setRelation({ type: 'none' })}
-              />
-            ))
+            <>
+              {posts.map((post) => (
+                <PostCard
+                  key={post.id}
+                  post={post}
+                  onPostUpdated={handlePostUpdated}
+                  onPostDeleted={handlePostDeleted}
+                  onAuthorUnfriended={() => setRelation({ type: 'none' })}
+                />
+              ))}
+
+              {hasMorePosts && (
+                <div className="pt-2 text-center">
+                  <button
+                    type="button"
+                    disabled={loadingMorePosts}
+                    onClick={handleLoadMorePosts}
+                    className="w-full py-2.5 px-4 text-xs font-semibold text-blue-600 dark:text-blue-400 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/80 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-2xs"
+                  >
+                    {loadingMorePosts ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
+                        <span>Loading more posts...</span>
+                      </>
+                    ) : (
+                      <span>Load more posts</span>
+                    )}
+                  </button>
+                </div>
+              )}
+            </>
           )
         ) : loadingSaved ? (
           <div className="flex items-center justify-center py-12 text-slate-400">
@@ -791,14 +867,36 @@ export function ProfilePage() {
             </p>
           </div>
         ) : (
-          savedPosts.map((post) => (
-            <PostCard
-              key={post.id}
-              post={post}
-              onPostUpdated={handleSavedPostUpdated}
-              onPostDeleted={handlePostDeleted}
-            />
-          ))
+          <>
+            {savedPosts.map((post) => (
+              <PostCard
+                key={post.id}
+                post={post}
+                onPostUpdated={handleSavedPostUpdated}
+                onPostDeleted={handlePostDeleted}
+              />
+            ))}
+
+            {hasMoreSaved && (
+              <div className="pt-2 text-center">
+                <button
+                  type="button"
+                  disabled={loadingMoreSaved}
+                  onClick={handleLoadMoreSaved}
+                  className="w-full py-2.5 px-4 text-xs font-semibold text-amber-600 dark:text-amber-400 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/80 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-2xs"
+                >
+                  {loadingMoreSaved ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin text-amber-600 dark:text-amber-400" />
+                      <span>Loading more saved posts...</span>
+                    </>
+                  ) : (
+                    <span>Load more saved posts</span>
+                  )}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
