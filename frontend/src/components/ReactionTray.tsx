@@ -108,7 +108,7 @@ export function ReactionTray({
   return (
     <div
       ref={trayRef}
-      className="absolute -top-12 left-0 sm:left-1 z-40 flex items-center gap-1 sm:gap-1.5 rounded-full border border-slate-200/90 bg-white/95 px-2.5 py-1.5 shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
+      className="absolute -top-12 left-0 sm:left-1 z-40 flex items-center gap-1 sm:gap-1.5 rounded-full border border-slate-200/90 dark:border-slate-700 bg-white/95 dark:bg-slate-800/95 px-2.5 py-1.5 shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
       onMouseLeave={onClose}
     >
       {REACTIONS_LIST.map((item) => {
@@ -122,13 +122,13 @@ export function ReactionTray({
               onSelect(item.type);
             }}
             className={`group/emoji relative flex h-9 w-9 items-center justify-center rounded-full text-2xl transition-all duration-150 hover:scale-135 hover:-translate-y-1.5 active:scale-110 cursor-pointer ${
-              isCurrent ? 'bg-slate-100 ring-2 ring-blue-500/40' : ''
+              isCurrent ? 'bg-slate-100 dark:bg-slate-700 ring-2 ring-blue-500/40' : ''
             }`}
             title={item.label}
           >
             <span className="select-none leading-none">{item.emoji}</span>
             {/* Tooltip on hover */}
-            <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 rounded-full bg-slate-900/90 px-2 py-0.5 text-[11px] font-medium text-white opacity-0 shadow-sm transition-opacity group-hover/emoji:opacity-100 whitespace-nowrap">
+            <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 rounded-full bg-slate-900/90 dark:bg-slate-700 px-2 py-0.5 text-[11px] font-medium text-white opacity-0 shadow-sm transition-opacity group-hover/emoji:opacity-100 whitespace-nowrap">
               {item.label}
             </span>
           </button>

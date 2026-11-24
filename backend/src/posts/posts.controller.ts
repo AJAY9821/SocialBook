@@ -191,6 +191,22 @@ export class PostsController {
     );
   }
 
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns paginated list of posts saved/bookmarked by the current user.',
+  })
+  @Get('saved')
+  async getSavedPosts(
+    @Req() req: Request,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const userId = req['user']._id.toString();
+    return this.postsService.getSavedPosts(userId, Number(page), Number(limit));
+  }
+
   @ApiParam({ name: 'id', description: 'Post ID' })
   @ApiResponse({ status: 200, description: 'Returns a single post by ID.' })
   @Get(':id')
@@ -285,6 +301,28 @@ export class PostsController {
   @Post(':id/share-count')
   async incrementShareCount(@Param('id') id: string) {
     return this.postsService.incrementShareCount(id);
+  }
+
+  @ApiParam({ name: 'id', description: 'Post ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Toggles saved/bookmarked status for the post.',
+  })
+  @Post(':id/save')
+  async toggleSavePost(@Param('id') id: string, @Req() req: Request) {
+    const userId = req['user']._id.toString();
+    return this.postsService.toggleSavePost(userId, id);
+  }
+
+  @ApiParam({ name: 'id', description: 'Post ID' })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns whether the post is saved/bookmarked by the current user.',
+  })
+  @Get(':id/save-status')
+  async getSaveStatus(@Param('id') id: string, @Req() req: Request) {
+    const userId = req['user']._id.toString();
+    return this.postsService.getSaveStatus(userId, id);
   }
 
   @ApiParam({ name: 'id', description: 'Post ID' })

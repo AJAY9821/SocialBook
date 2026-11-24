@@ -20,6 +20,8 @@ import {
   UserPlus,
   Ban,
   X,
+  Bookmark,
+  Loader2,
 } from 'lucide-react';
 import { usersApi, type UpdateProfilePayload } from '../api/users';
 import { postsApi } from '../api/posts';
@@ -51,6 +53,9 @@ export function ProfilePage() {
 
   const [profile, setProfile] = useState<User | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
+  const [activeTab, setActiveTab] = useState<'posts' | 'saved'>('posts');
+  const [savedPosts, setSavedPosts] = useState<Post[]>([]);
+  const [loadingSaved, setLoadingSaved] = useState(false);
   const [relation, setRelation] = useState<RelationState>({ type: 'none' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -140,6 +145,24 @@ export function ProfilePage() {
 
   // Revalidate on tab focus & 20-second gentle polling while viewing profile
   useAutoRefresh(() => loadProfileData(false), { intervalMs: 20000 });
+
+  // Fetch saved posts when 'Saved' tab is selected
+  useEffect(() => {
+    if (isOwnProfile && activeTab === 'saved') {
+      setLoadingSaved(true);
+      postsApi
+        .getSavedPosts(1, 20)
+        .then((res) => {
+          setSavedPosts(res.posts);
+        })
+        .catch((err) => {
+          console.error('Failed to load saved posts in profile:', err);
+        })
+        .finally(() => {
+          setLoadingSaved(false);
+        });
+    }
+  }, [isOwnProfile, activeTab]);
 
   // Auto-dismiss status message after 4 seconds
   useEffect(() => {
@@ -316,6 +339,17 @@ export function ProfilePage() {
 
   const handlePostDeleted = (postId: string) => {
     setPosts((prev) => prev.filter((p) => p.id !== postId));
+    setSavedPosts((prev) => prev.filter((p) => p.id !== postId));
+  };
+
+  const handleSavedPostUpdated = (updated: Post) => {
+    if (updated.isSavedByMe === false) {
+      setSavedPosts((prev) => prev.filter((p) => p.id !== updated.id));
+    } else {
+      setSavedPosts((prev) =>
+        prev.map((p) => (p.id === updated.id ? updated : p)),
+      );
+    }
   };
 
   if (loading) {
@@ -338,12 +372,12 @@ export function ProfilePage() {
 
   if (isBlockedByOther) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+      <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-12 text-center shadow-sm">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500">
           <Ban className="h-7 w-7" />
         </div>
-        <h2 className="mt-4 text-lg font-bold text-slate-800">User Unavailable</h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <h2 className="mt-4 text-lg font-bold text-slate-800 dark:text-slate-100">User Unavailable</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           This profile is not available or you do not have permission to view it.
         </p>
         <Link
@@ -379,7 +413,7 @@ export function ProfilePage() {
       )}
 
       {/* Profile Header Card */}
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
         {/* Cover Banner */}
         <div className="relative h-40 w-full bg-gradient-to-r from-blue-600 to-indigo-500">
           {profile.coverUrl && (
@@ -405,7 +439,7 @@ export function ProfilePage() {
 
         <div className="px-6 pb-6">
           <div className="-mt-12 flex flex-wrap items-end justify-between gap-4">
-            <div className="relative rounded-full bg-white p-1 shadow-sm">
+            <div className="relative rounded-full bg-white dark:bg-slate-900 p-1 shadow-sm">
               <Avatar
                 name={profile.name}
                 avatarUrl={profile.avatarUrl}
@@ -417,7 +451,7 @@ export function ProfilePage() {
                   disabled={uploadingAvatar}
                   onClick={() => avatarInputRef.current?.click()}
                   title="Change profile photo"
-                  className="absolute bottom-1 right-1 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-blue-600 text-white shadow transition hover:bg-blue-700 disabled:opacity-60 cursor-pointer"
+                  className="absolute bottom-1 right-1 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white dark:border-slate-900 bg-blue-600 text-white shadow transition hover:bg-blue-700 disabled:opacity-60 cursor-pointer"
                 >
                   <Camera className="h-4 w-4" />
                 </button>
@@ -428,7 +462,7 @@ export function ProfilePage() {
               <button
                 type="button"
                 onClick={() => setIsEditing((prev) => !prev)}
-                className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 cursor-pointer"
+                className="flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-300 transition hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
               >
                 {isEditing ? (
                   <>
@@ -448,7 +482,7 @@ export function ProfilePage() {
                   type="button"
                   disabled={blockingBusy}
                   onClick={() => void handleUnblockUser()}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-100 transition cursor-pointer disabled:opacity-50 shadow-2xs"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 px-4 py-2 text-sm font-semibold text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition cursor-pointer disabled:opacity-50 shadow-2xs"
                 >
                   <Ban className="h-4 w-4" />
                   <span>{blockingBusy ? 'Unblocking...' : 'Unblock User'}</span>
@@ -465,13 +499,13 @@ export function ProfilePage() {
                       <MessageSquare className="h-4 w-4" />
                       Message
                     </Link>
-                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3.5 py-2 text-sm font-semibold text-emerald-700">
+                    <span className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 px-3.5 py-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
                       <UserCheck className="h-4 w-4" />
                       Friends
                     </span>
                   </div>
                 ) : relation.type === 'outgoing' ? (
-                  <span className="inline-flex items-center rounded-xl bg-slate-100 px-4 py-2 text-sm font-medium text-slate-600">
+                  <span className="inline-flex items-center rounded-xl bg-slate-100 dark:bg-slate-800 px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400">
                     Request Sent
                   </span>
                 ) : relation.type === 'incoming' ? (
@@ -499,10 +533,10 @@ export function ProfilePage() {
                 <button
                   type="button"
                   onClick={() => setShowBlockModal(true)}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:border-red-200 hover:bg-red-50 hover:text-red-600 transition cursor-pointer shadow-2xs"
+                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:border-red-200 dark:hover:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-600 dark:hover:text-red-400 transition cursor-pointer shadow-2xs"
                   title={`Block ${profile.name}`}
                 >
-                  <Ban className="h-4 w-4 text-slate-400" />
+                  <Ban className="h-4 w-4 text-slate-400 dark:text-slate-500" />
                   <span>Block</span>
                 </button>
               </div>
@@ -510,14 +544,14 @@ export function ProfilePage() {
           </div>
 
           <div className="mt-4">
-            <h1 className="text-2xl font-bold text-slate-900">{profile.name}</h1>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-slate-100">{profile.name}</h1>
             {profile.bio && (
-              <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
+              <p className="mt-1.5 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
                 {profile.bio}
               </p>
             )}
 
-            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-slate-500">
+            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-slate-500 dark:text-slate-400">
               <span className="flex items-center gap-1.5">
                 <Mail className="h-3.5 w-3.5" />
                 {profile.email}
@@ -533,7 +567,7 @@ export function ProfilePage() {
                   href={profile.website}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-1.5 text-blue-600 hover:underline"
+                  className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400 hover:underline"
                 >
                   <Globe className="h-3.5 w-3.5" />
                   {profile.website}
@@ -543,12 +577,12 @@ export function ProfilePage() {
           </div>
 
           {statusMsg && (
-            <div className="mt-4 flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-sm text-emerald-700 shadow-2xs">
+            <div className="mt-4 flex items-center justify-between gap-2 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/40 px-3.5 py-2 text-sm text-emerald-700 dark:text-emerald-300 shadow-2xs">
               <span>{statusMsg}</span>
               <button
                 type="button"
                 onClick={() => setStatusMsg('')}
-                className="rounded-lg p-0.5 text-emerald-600 hover:bg-emerald-100 transition cursor-pointer"
+                className="rounded-lg p-0.5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition cursor-pointer"
                 title="Dismiss notice"
               >
                 <X className="h-4 w-4" />
@@ -557,12 +591,12 @@ export function ProfilePage() {
           )}
 
           {error && (
-            <div className="mt-4 flex items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 px-3.5 py-2 text-sm text-red-700 shadow-2xs">
+            <div className="mt-4 flex items-center justify-between gap-2 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 px-3.5 py-2 text-sm text-red-700 dark:text-red-300 shadow-2xs">
               <span>{error}</span>
               <button
                 type="button"
                 onClick={() => setError('')}
-                className="rounded-lg p-0.5 text-red-600 hover:bg-red-100 transition cursor-pointer"
+                className="rounded-lg p-0.5 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition cursor-pointer"
                 title="Dismiss notice"
               >
                 <X className="h-4 w-4" />
@@ -570,21 +604,21 @@ export function ProfilePage() {
             </div>
           )}
 
-          {/* Edit Profile Form (Browse Buttons — No Avatar/Cover URL inputs!) */}
+          {/* Edit Profile Form */}
           {isOwnProfile && isEditing && (
             <form
               onSubmit={handleSaveProfile}
-              className="mt-5 space-y-4 border-t border-slate-100 pt-5"
+              className="mt-5 space-y-4 border-t border-slate-100 dark:border-slate-800 pt-5"
             >
               {/* Quick Photo Upload Buttons */}
-              <div className="flex flex-wrap items-center gap-3 rounded-xl bg-slate-50 p-3">
+              <div className="flex flex-wrap items-center gap-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 p-3">
                 <button
                   type="button"
                   disabled={uploadingAvatar}
                   onClick={() => avatarInputRef.current?.click()}
-                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-60 cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 transition hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-60 cursor-pointer"
                 >
-                  <Upload className="h-3.5 w-3.5 text-blue-600" />
+                  <Upload className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
                   <span>
                     {uploadingAvatar
                       ? 'Uploading DP...'
@@ -595,9 +629,9 @@ export function ProfilePage() {
                   type="button"
                   disabled={uploadingCover}
                   onClick={() => coverInputRef.current?.click()}
-                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:opacity-60 cursor-pointer"
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 transition hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-60 cursor-pointer"
                 >
-                  <Upload className="h-3.5 w-3.5 text-emerald-600" />
+                  <Upload className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
                   <span>
                     {uploadingCover
                       ? 'Uploading Cover...'
@@ -608,7 +642,7 @@ export function ProfilePage() {
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700">
+                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
                     Name
                   </label>
                   <input
@@ -617,11 +651,11 @@ export function ProfilePage() {
                     minLength={3}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30"
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700">
+                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
                     Location
                   </label>
                   <input
@@ -629,13 +663,13 @@ export function ProfilePage() {
                     value={location}
                     onChange={(e) => setLocation(e.target.value)}
                     placeholder="e.g. Delhi, India"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">
+                <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
                   Bio
                 </label>
                 <textarea
@@ -644,12 +678,12 @@ export function ProfilePage() {
                   value={bio}
                   onChange={(e) => setBio(e.target.value)}
                   placeholder="Tell people a bit about yourself..."
-                  className="w-full resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full resize-none rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30"
                 />
               </div>
 
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">
+                <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
                   Website URL (optional)
                 </label>
                 <input
@@ -657,7 +691,7 @@ export function ProfilePage() {
                   value={website}
                   onChange={(e) => setWebsite(e.target.value)}
                   placeholder="https://yoursite.com"
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 px-3 py-2 text-sm text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30"
                 />
               </div>
 
@@ -665,7 +699,7 @@ export function ProfilePage() {
                 <button
                   type="button"
                   onClick={() => setIsEditing(false)}
-                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 cursor-pointer"
+                  className="rounded-lg border border-slate-200 dark:border-slate-700 px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -682,25 +716,87 @@ export function ProfilePage() {
         </div>
       </div>
 
-      {/* User's Posts */}
+      {/* User's Posts / Saved Tab */}
       <div className="space-y-4">
-        <h2 className="text-base font-semibold text-slate-800">
-          {isOwnProfile ? 'Your Posts' : `${profile.name}'s Posts`} (
-          {posts.length})
-        </h2>
+        {isOwnProfile ? (
+          <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('posts')}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl transition cursor-pointer ${
+                activeTab === 'posts'
+                  ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/60 shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              <span>Your Posts</span>
+              <span className="rounded-full bg-slate-200 dark:bg-slate-700 px-2 py-0.5 text-xs">
+                {posts.length}
+              </span>
+            </button>
 
-        {posts.length === 0 ? (
-          <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500 shadow-sm">
-            No posts yet.
+            <button
+              type="button"
+              onClick={() => setActiveTab('saved')}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl transition cursor-pointer ${
+                activeTab === 'saved'
+                  ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60 shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+              }`}
+            >
+              <Bookmark className="h-4 w-4" />
+              <span>Saved Posts</span>
+              {savedPosts.length > 0 && (
+                <span className="rounded-full bg-slate-200 dark:bg-slate-700 px-2 py-0.5 text-xs">
+                  {savedPosts.length}
+                </span>
+              )}
+            </button>
           </div>
         ) : (
-          posts.map((post) => (
+          <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">
+            {profile.name}'s Posts ({posts.length})
+          </h2>
+        )}
+
+        {activeTab === 'posts' || !isOwnProfile ? (
+          posts.length === 0 ? (
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 text-center text-sm text-slate-500 dark:text-slate-400 shadow-sm">
+              No posts yet.
+            </div>
+          ) : (
+            posts.map((post) => (
+              <PostCard
+                key={post.id}
+                post={post}
+                onPostUpdated={handlePostUpdated}
+                onPostDeleted={handlePostDeleted}
+                onAuthorUnfriended={() => setRelation({ type: 'none' })}
+              />
+            ))
+          )
+        ) : loadingSaved ? (
+          <div className="flex items-center justify-center py-12 text-slate-400">
+            <Loader2 className="h-6 w-6 animate-spin text-amber-500 mr-2" />
+            <span>Loading saved posts...</span>
+          </div>
+        ) : savedPosts.length === 0 ? (
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-8 text-center shadow-sm">
+            <Bookmark className="h-8 w-8 mx-auto text-amber-500/60 mb-2" />
+            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+              No saved posts yet
+            </p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              Posts you bookmark will be displayed here for easy access.
+            </p>
+          </div>
+        ) : (
+          savedPosts.map((post) => (
             <PostCard
               key={post.id}
               post={post}
-              onPostUpdated={handlePostUpdated}
+              onPostUpdated={handleSavedPostUpdated}
               onPostDeleted={handlePostDeleted}
-              onAuthorUnfriended={() => setRelation({ type: 'none' })}
             />
           ))
         )}

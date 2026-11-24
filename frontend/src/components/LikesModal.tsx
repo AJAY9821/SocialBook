@@ -111,21 +111,21 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
         }
       }}
     >
-      <div className="relative flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl animate-in zoom-in-95 duration-150">
+      <div className="relative flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl animate-in zoom-in-95 duration-150 dark:border-slate-800 dark:bg-slate-900">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 dark:border-slate-800">
           <div className="flex items-center gap-2">
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-blue-600">
-              <ThumbsUp className="h-4 w-4 text-blue-600" />
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400">
+              <ThumbsUp className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             </span>
-            <h3 className="text-base font-bold text-slate-800">
+            <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
               People who reacted {likesCount > 0 ? `(${likesCount})` : ''}
             </h3>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 cursor-pointer"
+            className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200 cursor-pointer"
             title="Close"
           >
             <X className="h-4 w-4" />
@@ -133,14 +133,14 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
         </div>
 
         {/* Reaction Filter Tabs */}
-        <div className="flex items-center gap-1.5 border-b border-slate-100 px-4 py-2 overflow-x-auto scrollbar-none bg-slate-50/80">
+        <div className="flex items-center gap-1.5 border-b border-slate-100 px-4 py-2 overflow-x-auto scrollbar-none bg-slate-50/80 dark:border-slate-800 dark:bg-slate-950/40">
           <button
             type="button"
             onClick={() => setSelectedReaction('all')}
             className={`rounded-full px-3 py-1 text-xs font-semibold transition cursor-pointer shrink-0 ${
               selectedReaction === 'all'
                 ? 'bg-blue-600 text-white shadow-xs'
-                : 'text-slate-600 hover:bg-slate-200/70'
+                : 'text-slate-600 hover:bg-slate-200/70 dark:text-slate-400 dark:hover:bg-slate-800'
             }`}
           >
             All {likesCount > 0 ? likesCount : ''}
@@ -157,8 +157,8 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
                 onClick={() => setSelectedReaction(item.type)}
                 className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition cursor-pointer shrink-0 ${
                   isActive
-                    ? 'bg-white text-slate-900 shadow-xs ring-1.5 ring-blue-500/30'
-                    : 'text-slate-600 hover:bg-slate-200/70'
+                    ? 'bg-white text-slate-900 shadow-xs ring-1.5 ring-blue-500/30 dark:bg-slate-800 dark:text-slate-100 dark:ring-blue-400/40'
+                    : 'text-slate-600 hover:bg-slate-200/70 dark:text-slate-400 dark:hover:bg-slate-800'
                 }`}
               >
                 <span className="text-sm leading-none">{item.emoji}</span>
@@ -169,23 +169,23 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
         </div>
 
         {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto p-4 divide-y divide-slate-100">
+        <div className="flex-1 overflow-y-auto p-4 divide-y divide-slate-100 dark:divide-slate-800">
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-              <Loader2 className="h-6 w-6 animate-spin text-blue-600 mb-2" />
+            <div className="flex flex-col items-center justify-center py-12 text-slate-400 dark:text-slate-500">
+              <Loader2 className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400 mb-2" />
               <p className="text-xs">Loading reactions...</p>
             </div>
           ) : error ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-xs text-red-600">
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center text-xs text-red-600 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
               <p>{error}</p>
             </div>
           ) : likes.length === 0 ? (
-            <div className="py-12 text-center text-slate-400">
-              <ThumbsUp className="mx-auto h-8 w-8 text-slate-300 mb-2" />
-              <p className="text-sm font-medium text-slate-600">
+            <div className="py-12 text-center text-slate-400 dark:text-slate-500">
+              <ThumbsUp className="mx-auto h-8 w-8 text-slate-300 dark:text-slate-600 mb-2" />
+              <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
                 No reactions yet
               </p>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
                 Be the first person to react to this post!
               </p>
             </div>
@@ -212,7 +212,7 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
                       </Link>
                       {/* Corner reaction badge */}
                       <span
-                        className={`absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full text-[11px] shadow-2xs ring-1.5 ring-white select-none ${reactionConf.badgeBg}`}
+                        className={`absolute -bottom-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full text-[11px] shadow-2xs ring-1.5 ring-white dark:ring-slate-900 select-none ${reactionConf.badgeBg}`}
                       >
                         <span className="leading-none">{reactionConf.emoji}</span>
                       </span>
@@ -222,17 +222,17 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
                       <Link
                         to={`/profile/${like.user._id}`}
                         onClick={onClose}
-                        className="block truncate text-sm font-semibold text-slate-900 transition hover:text-blue-600 hover:underline"
+                        className="block truncate text-sm font-semibold text-slate-900 transition hover:text-blue-600 hover:underline dark:text-slate-100 dark:hover:text-blue-400"
                       >
                         {like.user.name}
                       </Link>
-                      <p className="truncate text-xs text-slate-400">
+                      <p className="truncate text-xs text-slate-400 dark:text-slate-500">
                         {like.user.email}
                       </p>
                     </div>
                   </div>
 
-                  <div className="shrink-0 text-[11px] text-slate-400 font-medium">
+                  <div className="shrink-0 text-[11px] text-slate-400 dark:text-slate-500 font-medium">
                     {formatLikeDate(like.createdAt)}
                   </div>
                 </div>

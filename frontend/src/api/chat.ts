@@ -12,6 +12,10 @@ export interface ChatMessage {
   sender: ChatUserSummary;
   recipient: ChatUserSummary;
   content: string;
+  messageType?: 'text' | 'audio';
+  audioUrl?: string;
+  audioDuration?: number;
+  audioWaveform?: number[];
   isRead: boolean;
   readAt?: string;
   isMe: boolean;
@@ -24,6 +28,9 @@ export interface ConversationItem {
   latestMessage: {
     id: string;
     content: string;
+    messageType?: 'text' | 'audio';
+    audioUrl?: string;
+    audioDuration?: number;
     senderId: string;
     isMe: boolean;
     isRead: boolean;
@@ -85,6 +92,34 @@ export const chatApi = {
     message: ChatMessage;
   }> {
     const res = await apiClient.post('/chat/messages', payload);
+    return res.data;
+  },
+
+  async sendAudioMessage(
+    recipientId: string,
+    audioBlob: Blob,
+    duration: number,
+    waveform?: number[],
+  ): Promise<{
+    error: boolean;
+    statusCode: number;
+    msg: string;
+    message: ChatMessage;
+  }> {
+    const formData = new FormData();
+    formData.append('recipientId', recipientId);
+    formData.append('duration', String(duration));
+    if (waveform && waveform.length > 0) {
+      formData.append('waveform', JSON.stringify(waveform));
+    }
+    const ext = audioBlob.type.includes('mp4') ? 'mp4' : 'webm';
+    formData.append('audio', audioBlob, `voice-note.${ext}`);
+
+    const res = await apiClient.post('/chat/messages/audio', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
     return res.data;
   },
 

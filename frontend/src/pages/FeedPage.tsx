@@ -74,7 +74,7 @@ export function FeedPage() {
       <CreatePostBox onPostCreated={handlePostCreated} />
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 px-4 py-3 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}
@@ -84,13 +84,13 @@ export function FeedPage() {
           <div className="h-7 w-7 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
         </div>
       ) : posts.length === 0 ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center shadow-sm">
-          <p className="text-base font-semibold text-slate-800">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-10 text-center shadow-sm">
+          <p className="text-base font-semibold text-slate-800 dark:text-slate-100">
             Your feed is empty
           </p>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             Share your first post above or{' '}
-            <Link to="/friends" className="font-medium text-blue-600 hover:underline">
+            <Link to="/friends" className="font-medium text-blue-600 dark:text-blue-400 hover:underline">
               add some friends
             </Link>{' '}
             to see their updates here.
@@ -116,7 +116,7 @@ export function FeedPage() {
                 onClick={() =>
                   pagination && void fetchFeed(pagination.page + 1, true)
                 }
-                className="rounded-xl border border-slate-200 bg-white px-5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50 cursor-pointer"
+                className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-5 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 shadow-sm transition hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
               >
                 {loadingMore ? 'Loading...' : 'Load More Posts'}
               </button>

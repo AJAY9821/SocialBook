@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ChevronLeft,
   ChevronRight,
@@ -83,6 +84,27 @@ export function StoryViewerModal({
       setFeedbackToast('');
     }
   }, [isOpen, initialGroupIndex, initialStoryIndex]);
+
+  // Lock body scroll while the story viewer is active to freeze background feed
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const originalOverflow = document.body.style.overflow;
+    const originalPaddingRight = document.body.style.paddingRight;
+
+    // Compensate for disappearing scrollbar to prevent layout shift
+    const scrollbarWidth =
+      window.innerWidth - document.documentElement.clientWidth;
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      document.body.style.paddingRight = originalPaddingRight;
+    };
+  }, [isOpen]);
 
   const currentGroup = groups[groupIndex];
   const currentStory: StoryItem | undefined = currentGroup?.stories[storyIndex];
@@ -371,8 +393,11 @@ export function StoryViewerModal({
     return `${hours}h`;
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-md">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex h-screen h-[100dvh] w-screen w-full items-center justify-center bg-black select-none overflow-hidden overscroll-contain touch-none"
+      onWheel={(e) => e.stopPropagation()}
+    >
       {/* Floating Emoji Animation Keyframes */}
       <style>{`
         @keyframes storyFloatUp {
@@ -784,28 +809,28 @@ export function StoryViewerModal({
             }
           }}
         >
-          <div className="relative w-full max-w-xs overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl animate-in zoom-in-95 duration-150 text-center">
+          <div className="relative w-full max-w-xs overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl animate-in zoom-in-95 duration-150 text-center dark:border-slate-800 dark:bg-slate-900">
             {/* Close Button */}
             <button
               type="button"
               disabled={isDeletingStory}
               onClick={handleCancelDelete}
-              className="absolute top-3.5 right-3.5 rounded-lg p-1 text-slate-400 hover:bg-slate-100 transition cursor-pointer disabled:opacity-50"
+              className="absolute top-3.5 right-3.5 rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition cursor-pointer disabled:opacity-50"
               title="Close"
             >
               <X className="h-4 w-4" />
             </button>
 
             {/* Trash Icon Badge */}
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-50 border border-red-100 text-red-600 mb-3 shadow-2xs">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-50 border border-red-100 text-red-600 dark:bg-red-950/40 dark:border-red-900/50 dark:text-red-400 mb-3 shadow-2xs">
               <Trash2 className="h-6 w-6" />
             </div>
 
             {/* Title & Description */}
-            <h3 className="text-base font-bold text-slate-900">
+            <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
               Delete Story?
             </h3>
-            <p className="mt-1 text-xs text-slate-500 leading-relaxed">
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
               Are you sure you want to delete this story? This action cannot be undone.
             </p>
 
@@ -815,7 +840,7 @@ export function StoryViewerModal({
                 type="button"
                 disabled={isDeletingStory}
                 onClick={handleCancelDelete}
-                className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 transition cursor-pointer disabled:opacity-50"
+                className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition cursor-pointer disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -841,6 +866,7 @@ export function StoryViewerModal({
           </div>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

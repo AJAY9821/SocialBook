@@ -10,6 +10,7 @@ import { Model, Types } from 'mongoose';
 import { Post } from 'models/post';
 import { FRIENDSHIP_STATUS, Friendship } from 'models/friendship';
 import { Like } from 'models/like';
+import { SavedPost } from 'models/saved-post';
 import { BlocksService } from 'src/blocks/blocks.service';
 import { CreatePostDto, SharePostDto, UpdatePostDto } from './dto';
 
@@ -22,6 +23,8 @@ export class PostsService {
     private readonly friendshipModel: Model<Friendship>,
     @InjectModel(Like.name)
     private readonly likeModel: Model<Like>,
+    @InjectModel(SavedPost.name)
+    private readonly savedPostModel: Model<SavedPost>,
     private readonly blocksService: BlocksService,
   ) {}
 
@@ -113,9 +116,10 @@ export class PostsService {
       this.postModel.countDocuments(filter),
     ]);
 
-    const [userReactionsMap, topReactionsMap] = await Promise.all([
+    const [userReactionsMap, topReactionsMap, savedPostIdsSet] = await Promise.all([
       this.getUserReactionsForPosts(userId, posts),
       this.getTopReactionsForPosts(posts),
+      this.getUserSavedPostIds(userId, posts),
     ]);
 
     return {
@@ -132,6 +136,7 @@ export class PostsService {
           userReactionsMap.get(postIdStr) || null,
           friendIdSet.has(postAuthorId),
           topReactionsMap.get(postIdStr) || [],
+          savedPostIdsSet.has(postIdStr),
         );
       }),
       pagination: {
@@ -192,9 +197,10 @@ export class PostsService {
       this.postModel.countDocuments(filter),
     ]);
 
-    const [userReactionsMap, topReactionsMap] = await Promise.all([
+    const [userReactionsMap, topReactionsMap, savedPostIdsSet] = await Promise.all([
       this.getUserReactionsForPosts(currentUserId, posts),
       this.getTopReactionsForPosts(posts),
+      this.getUserSavedPostIds(currentUserId, posts),
     ]);
 
     const isTargetFriend =
@@ -226,6 +232,7 @@ export class PostsService {
           userReactionsMap.get(postIdStr) || null,
           isTargetFriend,
           topReactionsMap.get(postIdStr) || [],
+          savedPostIdsSet.has(postIdStr),
         );
       }),
       pagination: {
@@ -263,7 +270,7 @@ export class PostsService {
       throw new NotFoundException('Post not found.');
     }
 
-    const [like, topReactionsAgg] = await Promise.all([
+    const [like, topReactionsAgg, isSaved] = await Promise.all([
       this.likeModel.findOne({
         user: new Types.ObjectId(currentUserId),
         post: post._id,
@@ -274,6 +281,10 @@ export class PostsService {
         { $sort: { count: -1 } },
         { $limit: 3 },
       ]),
+      this.savedPostModel.exists({
+        user: new Types.ObjectId(currentUserId),
+        post: post._id,
+      }),
     ]);
 
     const postUser = post.user || post.author;
@@ -306,7 +317,13 @@ export class PostsService {
     return {
       error: false,
       statusCode: HttpStatus.OK,
-      post: this.formatPost(post, myReaction, isAuthorFriend, topReactions),
+      post: this.formatPost(
+        post,
+        myReaction,
+        isAuthorFriend,
+        topReactions,
+        Boolean(isSaved),
+      ),
     };
   }
 
@@ -549,6 +566,7 @@ export class PostsService {
     myReaction: string | boolean | null = null,
     isAuthorFriend = false,
     topReactions: string[] = [],
+    isSavedByMe = false,
   ) {
     const postObj = post.toObject ? post.toObject() : (post as any);
     const resolvedReaction = typeof myReaction === 'string' ? myReaction : null;
@@ -580,6 +598,7 @@ export class PostsService {
             ? ['like']
             : [],
       isAuthorFriend,
+      isSavedByMe: Boolean(isSavedByMe),
       createdAt: postObj.createdAt,
       updatedAt: postObj.updatedAt,
     };
@@ -605,6 +624,144 @@ export class PostsService {
       sharesCount: orig.sharesCount || 0,
       createdAt: orig.createdAt,
       updatedAt: orig.updatedAt,
+    };
+  }
+
+  private async getUserSavedPostIds(
+    userId: string,
+    posts: Post[],
+  ): Promise<Set<string>> {
+    if (!posts.length) {
+      return new Set<string>();
+    }
+
+    const postIds = posts.map((post) => post._id);
+    const saved = await this.savedPostModel
+      .find({
+        user: new Types.ObjectId(userId),
+        post: { $in: postIds },
+      })
+      .select('post')
+      .lean();
+
+    return new Set(saved.map((s) => s.post.toString()));
+  }
+
+  async toggleSavePost(userId: string, postId: string) {
+    if (!Types.ObjectId.isValid(postId)) {
+      throw new BadRequestException('Invalid post ID.');
+    }
+
+    const post = await this.postModel.findOne({
+      _id: postId,
+      isDeleted: false,
+    });
+
+    if (!post) {
+      throw new NotFoundException('Post not found.');
+    }
+
+    const userObjId = new Types.ObjectId(userId);
+    const postObjId = new Types.ObjectId(postId);
+
+    const existing = await this.savedPostModel.findOne({
+      user: userObjId,
+      post: postObjId,
+    });
+
+    if (existing) {
+      await this.savedPostModel.deleteOne({ _id: existing._id });
+      return {
+        error: false,
+        statusCode: HttpStatus.OK,
+        msg: 'Post removed from saved posts.',
+        isSaved: false,
+      };
+    } else {
+      await this.savedPostModel.create({
+        user: userObjId,
+        post: postObjId,
+      });
+      return {
+        error: false,
+        statusCode: HttpStatus.CREATED,
+        msg: 'Post saved to bookmarks.',
+        isSaved: true,
+      };
+    }
+  }
+
+  async getSavedPosts(userId: string, page = 1, limit = 10) {
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(50, Math.max(1, Number(limit) || 10));
+    const skip = (safePage - 1) * safeLimit;
+
+    const userObjId = new Types.ObjectId(userId);
+
+    const [savedDocs, total] = await Promise.all([
+      this.savedPostModel
+        .find({ user: userObjId })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(safeLimit)
+        .populate({
+          path: 'post',
+          match: { isDeleted: false },
+          populate: [
+            { path: 'user', select: 'name email avatarUrl' },
+            {
+              path: 'originalPost',
+              populate: { path: 'user', select: 'name email avatarUrl' },
+            },
+          ],
+        })
+        .exec(),
+      this.savedPostModel.countDocuments({ user: userObjId }),
+    ]);
+
+    const validPosts: Post[] = savedDocs
+      .map((doc) => doc.post as any)
+      .filter((p) => p && !p.isDeleted);
+
+    const [userReactionsMap, topReactionsMap] = await Promise.all([
+      this.getUserReactionsForPosts(userId, validPosts),
+      this.getTopReactionsForPosts(validPosts),
+    ]);
+
+    return {
+      error: false,
+      statusCode: HttpStatus.OK,
+      posts: validPosts.map((post) => {
+        const postIdStr = post._id.toString();
+        return this.formatPost(
+          post,
+          userReactionsMap.get(postIdStr) || null,
+          false,
+          topReactionsMap.get(postIdStr) || [],
+          true,
+        );
+      }),
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
+  }
+
+  async getSaveStatus(userId: string, postId: string) {
+    if (!Types.ObjectId.isValid(postId)) {
+      throw new BadRequestException('Invalid post ID.');
+    }
+    const isSaved = await this.savedPostModel.exists({
+      user: new Types.ObjectId(userId),
+      post: new Types.ObjectId(postId),
+    });
+    return {
+      error: false,
+      statusCode: HttpStatus.OK,
+      isSaved: Boolean(isSaved),
     };
   }
 }

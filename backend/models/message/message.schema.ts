@@ -12,6 +12,23 @@ export class Message extends Document {
   @Prop({ type: String, required: true, trim: true, maxlength: 2000 })
   content: string;
 
+  @Prop({
+    type: String,
+    enum: ['text', 'audio'],
+    default: 'text',
+    index: true,
+  })
+  messageType: string;
+
+  @Prop({ type: String, required: false })
+  audioUrl?: string;
+
+  @Prop({ type: Number, required: false })
+  audioDuration?: number;
+
+  @Prop({ type: [Number], required: false })
+  audioWaveform?: number[];
+
   @Prop({ type: Boolean, default: false })
   isRead: boolean;
 

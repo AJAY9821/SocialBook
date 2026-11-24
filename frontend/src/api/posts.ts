@@ -230,4 +230,33 @@ export const postsApi = {
     }>(`/posts/${postId}/share-count`);
     return data;
   },
+
+  async toggleSavePost(postId: string) {
+    const { data } = await apiClient.post<{
+      error: boolean;
+      statusCode: number;
+      msg: string;
+      isSaved: boolean;
+    }>(`/posts/${postId}/save`);
+    return data;
+  },
+
+  async getSavedPosts(page = 1, limit = 10) {
+    const { data } = await apiClient.get<{
+      error: boolean;
+      statusCode: number;
+      posts: Post[];
+      pagination: Pagination;
+    }>('/posts/saved', { params: { page, limit } });
+    return data;
+  },
+
+  async getSaveStatus(postId: string) {
+    const { data } = await apiClient.get<{
+      error: boolean;
+      statusCode: number;
+      isSaved: boolean;
+    }>(`/posts/${postId}/save-status`);
+    return data;
+  },
 };

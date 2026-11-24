@@ -60,6 +60,7 @@ export interface Post {
   topReactions?: ReactionType[];
   isAuthorFriend?: boolean;
   isFriend?: boolean;
+  isSavedByMe?: boolean;
   createdAt: string;
   updatedAt: string;
 }

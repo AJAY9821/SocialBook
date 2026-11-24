@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertCircle,
   Camera,
@@ -107,6 +108,25 @@ export function CreateStoryModal({
       setShowCloseFriendsManager(false);
       setShowHideFromPicker(false);
     }
+  }, [isOpen]);
+
+  // Lock body scroll while modal is open
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const originalOverflow = document.body.style.overflow;
+    const originalPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth =
+      window.innerWidth - document.documentElement.clientWidth;
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      document.body.style.paddingRight = originalPaddingRight;
+    };
   }, [isOpen]);
 
   const handleImageChange = (e: ChangeEvent<HTMLInputElement>) => {
@@ -260,8 +280,11 @@ export function CreateStoryModal({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex h-screen h-[100dvh] w-screen w-full items-center justify-center bg-black/75 p-4 backdrop-blur-sm select-none overscroll-contain"
+      onWheel={(e) => e.stopPropagation()}
+    >
       <div className="relative flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-800">
@@ -699,6 +722,7 @@ export function CreateStoryModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -13,7 +13,7 @@ import { Message } from 'models/message';
 import { FRIENDSHIP_STATUS, Friendship } from 'models/friendship';
 import { User } from 'models/user';
 import { BlocksService } from 'src/blocks/blocks.service';
-import { SendMessageDto } from './dto';
+import { SendAudioMessageDto, SendMessageDto } from './dto';
 import { ChatGateway } from './chat.gateway';
 
 @Injectable()
@@ -105,6 +105,112 @@ export class ChatService {
   }
 
   /**
+   * Send a voice audio note to an accepted friend
+   */
+  async sendAudioMessage(
+    senderId: string,
+    dto: SendAudioMessageDto,
+    file: Express.Multer.File,
+    hostBaseUrl: string,
+  ) {
+    if (!Types.ObjectId.isValid(dto.recipientId)) {
+      throw new BadRequestException('Invalid recipient ID.');
+    }
+
+    if (senderId === dto.recipientId) {
+      throw new BadRequestException('You cannot message yourself.');
+    }
+
+    const senderObjectId = new Types.ObjectId(senderId);
+    const recipientObjectId = new Types.ObjectId(dto.recipientId);
+
+    // 1. Verify recipient exists and is not deleted
+    const recipient = await this.userModel.findOne({
+      _id: recipientObjectId,
+      isDeleted: false,
+    });
+    if (!recipient) {
+      throw new NotFoundException('Recipient user not found.');
+    }
+
+    // 1.5. Check block status
+    if (await this.blocksService.isBlocked(senderId, dto.recipientId)) {
+      throw new ForbiddenException('You cannot message this user.');
+    }
+
+    // 2. Strict Privacy Guard: Must be accepted friends
+    const friendship = await this.friendshipModel.findOne({
+      status: FRIENDSHIP_STATUS.ACCEPTED,
+      $or: [
+        { requester: senderObjectId, recipient: recipientObjectId },
+        { requester: recipientObjectId, recipient: senderObjectId },
+      ],
+    });
+
+    if (!friendship) {
+      throw new ForbiddenException(
+        'You can only send messages to users who are your accepted friends.',
+      );
+    }
+
+    // 3. Construct public audio URL
+    const audioUrl = `${hostBaseUrl}/uploads/audio/${file.filename}`;
+
+    // Format duration text for fallback content preview (e.g. "🎤 Voice message (0:14)")
+    const totalSecs = Math.round(Number(dto.duration) || 0);
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    const durationFormatted = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+    const fallbackContent = `🎤 Voice message (${durationFormatted})`;
+
+    // Parse waveform if provided
+    let audioWaveform: number[] | undefined;
+    if (dto.waveform) {
+      try {
+        const parsed = JSON.parse(dto.waveform);
+        if (Array.isArray(parsed)) {
+          audioWaveform = parsed.map((n) => Number(n)).filter((n) => !isNaN(n));
+        }
+      } catch {
+        // Fallback: waveform is optional
+      }
+    }
+
+    // 4. Save message
+    const message = await this.messageModel.create({
+      sender: senderObjectId,
+      recipient: recipientObjectId,
+      content: fallbackContent,
+      messageType: 'audio',
+      audioUrl,
+      audioDuration: Number(dto.duration),
+      audioWaveform,
+      isRead: false,
+    });
+
+    const populated = await message.populate([
+      { path: 'sender', select: 'name email avatarUrl' },
+      { path: 'recipient', select: 'name email avatarUrl' },
+    ]);
+
+    const formatted = this.formatMessage(populated, senderId);
+
+    // 5. Emit real-time WebSocket event directly to recipient and sender
+    try {
+      this.chatGateway.emitNewMessage(dto.recipientId, senderId, formatted);
+    } catch {
+      // Non-blocking if socket emit fails
+    }
+
+    return {
+      error: false,
+      statusCode: HttpStatus.CREATED,
+      msg: 'Audio message sent successfully.',
+      message: formatted,
+    };
+  }
+
+  /**
    * Get all conversations (list of friends with latest message preview & unread count)
    */
   async getConversations(userId: string) {
@@ -172,6 +278,9 @@ export class ChatService {
           ? {
               id: latestMessage._id.toString(),
               content: latestMessage.content,
+              messageType: (latestMessage as any).messageType || 'text',
+              audioUrl: (latestMessage as any).audioUrl,
+              audioDuration: (latestMessage as any).audioDuration,
               senderId: latestMessage.sender.toString(),
               isMe: latestMessage.sender.toString() === userId,
               isRead: latestMessage.isRead,
@@ -367,6 +476,10 @@ export class ChatService {
         avatarUrl: recipientObj.avatarUrl || '',
       },
       content: obj.content,
+      messageType: obj.messageType || 'text',
+      audioUrl: obj.audioUrl,
+      audioDuration: obj.audioDuration,
+      audioWaveform: obj.audioWaveform,
       isRead: obj.isRead,
       readAt: obj.readAt,
       isMe:

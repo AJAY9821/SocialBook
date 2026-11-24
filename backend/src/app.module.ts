@@ -19,6 +19,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ChatModule } from './chat/chat.module';
 import { StoriesModule } from './stories/stories.module';
 import { BlocksModule } from './blocks/blocks.module';
+import { AIModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { BlocksModule } from './blocks/blocks.module';
     ChatModule,
     StoriesModule,
     BlocksModule,
+    AIModule,
     ThirdPartyModule,
     CommonModule,
   ],

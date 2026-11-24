@@ -209,7 +209,7 @@ export function CommentSection({
   };
 
   return (
-    <div className="mt-3 border-t border-slate-100 pt-3 space-y-3">
+    <div className="mt-3 border-t border-slate-100 dark:border-slate-800 pt-3 space-y-3">
       {/* Top-level Add comment form */}
       <form onSubmit={handleAddComment} className="flex items-center gap-2">
         <Avatar name={user?.name} avatarUrl={user?.avatarUrl} size="sm" />
@@ -218,7 +218,7 @@ export function CommentSection({
           value={newComment}
           onChange={(e) => setNewComment(e.target.value)}
           placeholder="Write a comment..."
-          className="w-full rounded-full border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
+          className="w-full rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3.5 py-2 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30"
         />
         <button
           type="submit"
@@ -231,18 +231,18 @@ export function CommentSection({
       </form>
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700">
+        <div className="rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 px-3 py-1.5 text-xs text-red-700 dark:text-red-300">
           {error}
         </div>
       )}
 
       {/* Comments list */}
       {loading ? (
-        <p className="py-2 text-center text-xs text-slate-400">
+        <p className="py-2 text-center text-xs text-slate-400 dark:text-slate-500">
           Loading comments...
         </p>
       ) : comments.length === 0 ? (
-        <p className="py-2 text-center text-xs text-slate-400">
+        <p className="py-2 text-center text-xs text-slate-400 dark:text-slate-500">
           No comments yet. Be the first to comment!
         </p>
       ) : (
@@ -271,11 +271,11 @@ export function CommentSection({
 
                   <div className="flex-1 min-w-0">
                     {/* Bubble */}
-                    <div className="rounded-2xl bg-slate-100 px-3.5 py-2 inline-block max-w-full">
+                    <div className="rounded-2xl bg-slate-100 dark:bg-slate-800/80 px-3.5 py-2 inline-block max-w-full">
                       <div className="flex items-center justify-between gap-3">
                         <Link
                           to={`/profile/${commentUser._id}`}
-                          className="text-xs font-semibold text-slate-900 hover:text-blue-600 hover:underline"
+                          className="text-xs font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
                         >
                           {commentUser.name}
                         </Link>
@@ -289,7 +289,7 @@ export function CommentSection({
                                   setEditingId(comment.id);
                                   setEditText(comment.content);
                                 }}
-                                className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-blue-600 cursor-pointer"
+                                className="rounded p-0.5 text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
                                 title="Edit comment"
                               >
                                 <Pencil className="h-3 w-3" />
@@ -299,7 +299,7 @@ export function CommentSection({
                               <button
                                 type="button"
                                 onClick={() => void handleDelete(comment.id)}
-                                className="rounded p-0.5 text-slate-400 hover:bg-red-100 hover:text-red-600 cursor-pointer"
+                                className="rounded p-0.5 text-slate-400 dark:text-slate-500 hover:bg-red-100 dark:hover:bg-red-950/40 hover:text-red-600 dark:hover:text-red-400 cursor-pointer"
                                 title="Delete comment"
                               >
                                 <Trash2 className="h-3 w-3" />
@@ -315,7 +315,7 @@ export function CommentSection({
                             type="text"
                             value={editText}
                             onChange={(e) => setEditText(e.target.value)}
-                            className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs outline-none focus:border-blue-500"
+                            className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-xs text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500"
                           />
                           <button
                             type="button"
@@ -329,21 +329,21 @@ export function CommentSection({
                           <button
                             type="button"
                             onClick={() => setEditingId(null)}
-                            className="rounded-lg border border-slate-200 bg-white p-1 text-slate-500 hover:bg-slate-100 cursor-pointer"
+                            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                             title="Cancel"
                           >
                             <X className="h-3 w-3" />
                           </button>
                         </div>
                       ) : (
-                        <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-800 break-words">
+                        <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-800 dark:text-slate-200 break-words">
                           {comment.content}
                         </p>
                       )}
                     </div>
 
                     {/* Comment Footer: Time & Reply button */}
-                    <div className="mt-1 flex items-center gap-3 pl-2 text-[11px] text-slate-500">
+                    <div className="mt-1 flex items-center gap-3 pl-2 text-[11px] text-slate-500 dark:text-slate-400">
                       <span>{formatShortDate(comment.createdAt)}</span>
                       <button
                         type="button"
@@ -356,7 +356,7 @@ export function CommentSection({
                             setReplyText(`@${commentUser.name} `);
                           }
                         }}
-                        className="font-semibold text-slate-600 hover:text-blue-600 cursor-pointer transition"
+                        className="font-semibold text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer transition"
                       >
                         {isReplying ? 'Cancel' : 'Reply'}
                       </button>
@@ -365,7 +365,7 @@ export function CommentSection({
                         <button
                           type="button"
                           onClick={() => toggleThread(comment.id)}
-                          className="flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-700 cursor-pointer transition"
+                          className="flex items-center gap-1 font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 cursor-pointer transition"
                         >
                           <CornerDownRight className="h-3 w-3" />
                           <span>
@@ -399,13 +399,13 @@ export function CommentSection({
                           }
                         }}
                         placeholder={`Reply to @${commentUser.name}...`}
-                        className="w-full rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 pr-8 text-xs outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                        className="w-full rounded-full border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-3 py-1.5 pr-8 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30"
                       />
                       <button
                         type="button"
                         disabled={submittingReply || !replyText.trim()}
                         onClick={() => void handleAddReply(comment.id)}
-                        className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-blue-600 hover:bg-blue-50 disabled:opacity-40 cursor-pointer"
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 disabled:opacity-40 cursor-pointer"
                         title="Send reply"
                       >
                         <Send className="h-3.5 w-3.5" />
@@ -417,7 +417,7 @@ export function CommentSection({
                         setReplyingToId(null);
                         setReplyText('');
                       }}
-                      className="rounded-full p-1 text-slate-400 hover:bg-slate-100 cursor-pointer"
+                      className="rounded-full p-1 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                       title="Cancel reply"
                     >
                       <X className="h-3.5 w-3.5" />
@@ -427,7 +427,7 @@ export function CommentSection({
 
                 {/* Nested Threaded Replies List */}
                 {hasReplies && isThreadExpanded && (
-                  <div className="ml-6 sm:ml-8 mt-2 space-y-2 border-l-2 border-slate-200 pl-3">
+                  <div className="ml-6 sm:ml-8 mt-2 space-y-2 border-l-2 border-slate-200 dark:border-slate-800 pl-3">
                     {replies.map((reply) => {
                       const replyUser = reply.user || reply.author;
                       const isReplyAuthor = user?.id === replyUser?._id;
@@ -446,11 +446,11 @@ export function CommentSection({
 
                           <div className="flex-1 min-w-0">
                             {/* Reply bubble */}
-                            <div className="rounded-xl bg-slate-100 px-3 py-1.5 inline-block max-w-full">
+                            <div className="rounded-xl bg-slate-100 dark:bg-slate-800/80 px-3 py-1.5 inline-block max-w-full">
                               <div className="flex items-center justify-between gap-2">
                                 <Link
                                   to={`/profile/${replyUser._id}`}
-                                  className="text-[11px] font-semibold text-slate-900 hover:text-blue-600 hover:underline"
+                                  className="text-[11px] font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
                                 >
                                   {replyUser.name}
                                 </Link>
@@ -464,7 +464,7 @@ export function CommentSection({
                                           setEditingId(reply.id);
                                           setEditText(reply.content);
                                         }}
-                                        className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-blue-600 cursor-pointer"
+                                        className="rounded p-0.5 text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
                                         title="Edit reply"
                                       >
                                         <Pencil className="h-2.5 w-2.5" />
@@ -474,7 +474,7 @@ export function CommentSection({
                                       <button
                                         type="button"
                                         onClick={() => void handleDelete(reply.id, comment.id)}
-                                        className="rounded p-0.5 text-slate-400 hover:bg-red-100 hover:text-red-600 cursor-pointer"
+                                        className="rounded p-0.5 text-slate-400 dark:text-slate-500 hover:bg-red-100 dark:hover:bg-red-950/40 hover:text-red-600 dark:hover:text-red-400 cursor-pointer"
                                         title="Delete reply"
                                       >
                                         <Trash2 className="h-2.5 w-2.5" />
@@ -490,7 +490,7 @@ export function CommentSection({
                                     type="text"
                                     value={editText}
                                     onChange={(e) => setEditText(e.target.value)}
-                                    className="w-full rounded-md border border-slate-300 bg-white px-2 py-0.5 text-xs outline-none focus:border-blue-500"
+                                    className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-0.5 text-xs text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500"
                                   />
                                   <button
                                     type="button"
@@ -504,21 +504,21 @@ export function CommentSection({
                                   <button
                                     type="button"
                                     onClick={() => setEditingId(null)}
-                                    className="rounded border border-slate-200 bg-white p-1 text-slate-500 hover:bg-slate-100 cursor-pointer"
+                                    className="rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                                     title="Cancel"
                                   >
                                     <X className="h-2.5 w-2.5" />
                                   </button>
                                 </div>
                               ) : (
-                                <p className="mt-0.5 whitespace-pre-wrap text-xs text-slate-800 break-words">
+                                <p className="mt-0.5 whitespace-pre-wrap text-xs text-slate-800 dark:text-slate-200 break-words">
                                   {reply.content}
                                 </p>
                               )}
                             </div>
 
                             {/* Reply row footer: Time and Reply button */}
-                            <div className="mt-0.5 flex items-center gap-2 pl-1.5 text-[10px] text-slate-400">
+                            <div className="mt-0.5 flex items-center gap-2 pl-1.5 text-[10px] text-slate-400 dark:text-slate-500">
                               <span>{formatShortDate(reply.createdAt)}</span>
                               <button
                                 type="button"

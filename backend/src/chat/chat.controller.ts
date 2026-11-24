@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -7,20 +8,68 @@ import {
   Post,
   Query,
   Req,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
   ApiBody,
+  ApiConsumes,
   ApiParam,
   ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { Request } from 'express';
+import { diskStorage } from 'multer';
+import * as fs from 'fs';
+import * as path from 'path';
+import { v4 as uuid } from 'uuid';
 import { AuthGuard } from 'src/middlewares';
 import { ChatService } from './chat.service';
-import { SendMessageDto } from './dto';
+import { SendAudioMessageDto, SendMessageDto } from './dto';
+
+const ALLOWED_AUDIO_MIME_TYPES = new Set([
+  'audio/webm',
+  'audio/ogg',
+  'audio/mp4',
+  'audio/wav',
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/m4a',
+  'audio/x-m4a',
+  'audio/aac',
+]);
+
+const audioMulterOptions = {
+  storage: diskStorage({
+    destination: (_req, _file, cb) => {
+      const audioUploadDir = path.join(process.cwd(), 'uploads', 'audio');
+      if (!fs.existsSync(audioUploadDir)) {
+        fs.mkdirSync(audioUploadDir, { recursive: true });
+      }
+      cb(null, audioUploadDir);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname).toLowerCase() || '.webm';
+      cb(null, `${uuid()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (_req, file, cb) => {
+    if (!ALLOWED_AUDIO_MIME_TYPES.has(file.mimetype)) {
+      return cb(
+        new BadRequestException(
+          'Only audio files (webm, ogg, mp4, wav, mp3, m4a up to 10MB) are allowed.',
+        ),
+        false,
+      );
+    }
+    cb(null, true);
+  },
+};
 
 @ApiTags('Chat')
 @ApiBearerAuth()
@@ -34,6 +83,23 @@ export class ChatController {
   async sendMessage(@Req() req: Request, @Body() dto: SendMessageDto) {
     const userId = req['user']._id.toString();
     return this.chatService.sendMessage(userId, dto);
+  }
+
+  @ApiConsumes('multipart/form-data')
+  @ApiResponse({ status: 201, description: 'Voice audio note sent successfully.' })
+  @Post('messages/audio')
+  @UseInterceptors(FileInterceptor('audio', audioMulterOptions))
+  async sendAudioMessage(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() dto: SendAudioMessageDto,
+    @Req() req: Request,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Audio file is required.');
+    }
+    const userId = req['user']._id.toString();
+    const hostBaseUrl = `${req.protocol}://${req.get('host')}`;
+    return this.chatService.sendAudioMessage(userId, dto, file, hostBaseUrl);
   }
 
   @ApiResponse({

@@ -6,12 +6,16 @@ import {
   Check,
   CheckCheck,
   ExternalLink,
+  Loader2,
   MessageSquare,
+  Mic,
   Repeat2,
   Search,
   Send,
   Sparkles,
+  Trash2,
   Users,
+  X,
 } from 'lucide-react';
 import { chatApi, type ChatMessage, type ConversationItem } from '../api/chat';
 import { blocksApi } from '../api/blocks';
@@ -20,6 +24,8 @@ import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { Avatar } from '../components/Avatar';
 import { ConfirmBlockModal } from '../components/ConfirmBlockModal';
+import { AudioMessagePlayer } from '../components/AudioMessagePlayer';
+import { useAudioRecorder } from '../hooks/useAudioRecorder';
 
 function formatChatTime(dateString: string): string {
   const date = new Date(dateString);
@@ -45,6 +51,9 @@ function formatChatTime(dateString: string): string {
 
 function formatSnippet(content: string, isMe: boolean): string {
   const prefix = isMe ? 'You: ' : '';
+  if (content.startsWith('🎤 Voice message')) {
+    return `${prefix}${content}`;
+  }
   if (content.startsWith('[STORY_REPLY]:')) {
     try {
       const data = JSON.parse(content.replace('[STORY_REPLY]:', ''));
@@ -76,12 +85,24 @@ function formatSnippet(content: string, isMe: boolean): string {
 }
 
 function MessageContent({
-  content,
+  message,
   isMe,
 }: {
-  content: string;
+  message: ChatMessage;
   isMe: boolean;
 }) {
+  if (message.messageType === 'audio' || message.audioUrl) {
+    return (
+      <AudioMessagePlayer
+        audioUrl={message.audioUrl || ''}
+        duration={message.audioDuration}
+        waveform={message.audioWaveform}
+        isMe={isMe}
+      />
+    );
+  }
+
+  const content = message.content;
   if (content.startsWith('[STORY_REPLY]:')) {
     try {
       const data = JSON.parse(content.replace('[STORY_REPLY]:', ''));
@@ -279,6 +300,26 @@ export function ChatPage() {
   const [isBlockedByOther, setIsBlockedByOther] = useState(false);
   const [showBlockModal, setShowBlockModal] = useState(false);
   const [blockingBusy, setBlockingBusy] = useState(false);
+
+  // Audio recording state
+  const [sendingAudio, setSendingAudio] = useState(false);
+  const [dismissRecorderError, setDismissRecorderError] = useState(false);
+
+  const {
+    isRecording,
+    formattedDuration,
+    error: recorderError,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  } = useAudioRecorder();
+
+  // Cancel recording if user switches active conversation
+  useEffect(() => {
+    if (isRecording) {
+      cancelRecording();
+    }
+  }, [friendId]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isFirstLoadRef = useRef(true);
@@ -562,32 +603,118 @@ export function ChatPage() {
     }
   };
 
+  const handleStartVoiceRecording = async () => {
+    setChatError('');
+    setDismissRecorderError(false);
+    await startRecording();
+  };
+
+  const handleCancelVoiceRecording = () => {
+    cancelRecording();
+  };
+
+  const handleSendVoiceRecording = async () => {
+    if (!friendId || sendingAudio) return;
+
+    const recordResult = await stopRecording();
+    if (!recordResult) return;
+
+    if (recordResult.duration < 0.5) {
+      setChatError('Voice note was too short to send.');
+      return;
+    }
+
+    setSendingAudio(true);
+    setChatError('');
+
+    // Optimistic UI update
+    const tempId = `temp-audio-${Date.now()}`;
+    const optimisticAudioUrl = URL.createObjectURL(recordResult.blob);
+
+    const mins = Math.floor(recordResult.duration / 60);
+    const secs = Math.floor(recordResult.duration % 60);
+    const durationFormatted = `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+    const fallbackContent = `🎤 Voice message (${durationFormatted})`;
+
+    const optimisticMsg: ChatMessage = {
+      id: tempId,
+      sender: {
+        id: currentUser?.id || '',
+        name: currentUser?.name || 'Me',
+        email: currentUser?.email || '',
+        avatarUrl: currentUser?.avatarUrl,
+      },
+      recipient: {
+        id: friendId,
+        name: activeFriend?.name || '',
+        email: activeFriend?.email || '',
+        avatarUrl: activeFriend?.avatarUrl,
+      },
+      content: fallbackContent,
+      messageType: 'audio',
+      audioUrl: optimisticAudioUrl,
+      audioDuration: recordResult.duration,
+      audioWaveform: recordResult.waveform,
+      isRead: false,
+      isMe: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    setMessages((prev) => [...prev, optimisticMsg]);
+    setTimeout(() => scrollToBottom('smooth'), 20);
+
+    try {
+      const res = await chatApi.sendAudioMessage(
+        friendId,
+        recordResult.blob,
+        recordResult.duration,
+        recordResult.waveform,
+      );
+
+      // Clean up optimistic object URL
+      URL.revokeObjectURL(optimisticAudioUrl);
+
+      // Replace temp message with server response
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? res.message : m)),
+      );
+
+      loadConversations(false);
+    } catch (err) {
+      setChatError(getErrorMessage(err, 'Failed to send audio message.'));
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+    } finally {
+      setSendingAudio(false);
+    }
+  };
+
   // Filter conversations by search
   const filteredConversations = conversations.filter((c) =>
     c.friend.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   return (
-    <div className="mx-auto max-w-5xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div className="mx-auto max-w-5xl overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
       <div className="flex h-[750px] max-h-[85vh]">
         {/* ========================================================
             LEFT PANEL: Friends / Conversations List
         ======================================================== */}
         <aside
-          className={`w-full flex-col border-r border-slate-100 md:flex md:w-80 lg:w-96 ${
+          className={`w-full flex-col border-r border-slate-100 dark:border-slate-800 md:flex md:w-80 lg:w-96 ${
             friendId ? 'hidden md:flex' : 'flex'
           }`}
         >
           {/* Header */}
-          <div className="border-b border-slate-100 p-4">
+          <div className="border-b border-slate-100 dark:border-slate-800 p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <MessageSquare className="h-5 w-5 text-blue-600" />
-                <h1 className="text-lg font-bold text-slate-800">Messages</h1>
+                <MessageSquare className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                <h1 className="text-lg font-bold text-slate-800 dark:text-slate-100">Messages</h1>
               </div>
               <Link
                 to="/friends"
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300"
               >
                 Find Friends
               </Link>
@@ -595,30 +722,30 @@ export function ChatPage() {
 
             {/* Search Box */}
             <div className="relative mt-3">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
               <input
                 type="text"
                 placeholder="Search conversations..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-1.5 pl-9 pr-3 text-xs text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none"
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 py-1.5 pl-9 pr-3 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 focus:outline-none"
               />
             </div>
           </div>
 
           {/* Conversations List */}
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-50 p-2">
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-50 dark:divide-slate-800/60 p-2">
             {loadingConversations ? (
-              <div className="py-12 text-center text-xs text-slate-400">
+              <div className="py-12 text-center text-xs text-slate-400 dark:text-slate-500">
                 Loading conversations...
               </div>
             ) : filteredConversations.length === 0 ? (
               <div className="py-12 text-center">
-                <Users className="mx-auto h-8 w-8 text-slate-300" />
-                <p className="mt-2 text-xs font-semibold text-slate-700">
+                <Users className="mx-auto h-8 w-8 text-slate-300 dark:text-slate-600" />
+                <p className="mt-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
                   {searchQuery ? 'No friends found' : 'No conversations yet'}
                 </p>
-                <p className="mt-1 px-4 text-[11px] text-slate-400">
+                <p className="mt-1 px-4 text-[11px] text-slate-400 dark:text-slate-500">
                   {searchQuery
                     ? 'Try a different search term.'
                     : 'Accepted friends will appear here. Say hello!'}
@@ -634,8 +761,8 @@ export function ChatPage() {
                     onClick={() => navigate(`/messages/${item.friend.id}`)}
                     className={`flex w-full items-center gap-3 rounded-xl p-3 text-left transition ${
                       isSelected
-                        ? 'bg-blue-50 text-blue-900'
-                        : 'hover:bg-slate-50 text-slate-700'
+                        ? 'bg-blue-50 dark:bg-blue-950/60 text-blue-900 dark:text-blue-100'
+                        : 'hover:bg-slate-50 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300'
                     }`}
                   >
                     <div className="relative flex-shrink-0">
@@ -655,30 +782,30 @@ export function ChatPage() {
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-1">
-                        <span className="truncate text-xs font-semibold text-slate-800">
+                        <span className="truncate text-xs font-semibold text-slate-800 dark:text-slate-100">
                           {item.friend.name}
                         </span>
                         {item.latestMessage && (
-                          <span className="text-[10px] text-slate-400 flex-shrink-0">
+                          <span className="text-[10px] text-slate-400 dark:text-slate-500 flex-shrink-0">
                             {formatChatTime(item.latestMessage.createdAt)}
                           </span>
                         )}
                       </div>
                       {isTyping(item.friend.id) ? (
-                        <p className="truncate text-[11px] font-medium text-blue-600 italic flex items-center gap-1">
+                        <p className="truncate text-[11px] font-medium text-blue-600 dark:text-blue-400 italic flex items-center gap-1">
                           <span>Typing</span>
                           <span className="inline-flex gap-0.5">
-                            <span className="h-1 w-1 rounded-full bg-blue-600 animate-bounce [animation-delay:-0.3s]" />
-                            <span className="h-1 w-1 rounded-full bg-blue-600 animate-bounce [animation-delay:-0.15s]" />
-                            <span className="h-1 w-1 rounded-full bg-blue-600 animate-bounce" />
+                            <span className="h-1 w-1 rounded-full bg-blue-600 dark:bg-blue-400 animate-bounce [animation-delay:-0.3s]" />
+                            <span className="h-1 w-1 rounded-full bg-blue-600 dark:bg-blue-400 animate-bounce [animation-delay:-0.15s]" />
+                            <span className="h-1 w-1 rounded-full bg-blue-600 dark:bg-blue-400 animate-bounce" />
                           </span>
                         </p>
                       ) : (
                         <p
                           className={`truncate text-[11px] ${
                             item.unreadCount > 0
-                              ? 'font-bold text-slate-900'
-                              : 'text-slate-500'
+                              ? 'font-bold text-slate-900 dark:text-slate-100'
+                              : 'text-slate-500 dark:text-slate-400'
                           }`}
                         >
                           {item.latestMessage
@@ -701,19 +828,19 @@ export function ChatPage() {
             RIGHT PANEL: Active Chat Conversation
         ======================================================== */}
         <section
-          className={`flex-1 flex-col bg-slate-50/50 ${
+          className={`flex-1 flex-col bg-slate-50/50 dark:bg-slate-950/50 ${
             friendId ? 'flex' : 'hidden md:flex'
           }`}
         >
           {friendId && activeFriend ? (
             <>
               {/* Chat Header */}
-              <div className="flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3 shadow-xs">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-3 shadow-xs">
                 <div className="flex items-center gap-3">
                   <button
                     type="button"
                     onClick={() => navigate('/messages')}
-                    className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 md:hidden"
+                    className="rounded-lg p-1 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 md:hidden"
                     title="Back to friends"
                   >
                     <ArrowLeft className="h-5 w-5" />
@@ -730,16 +857,16 @@ export function ChatPage() {
                       isOnline={isOnline(activeFriend.id)}
                     />
                     <div>
-                      <h2 className="text-xs font-bold text-slate-800 leading-tight">
+                      <h2 className="text-xs font-bold text-slate-800 dark:text-slate-100 leading-tight">
                         {activeFriend.name}
                       </h2>
                       {isOnline(activeFriend.id) ? (
-                        <span className="flex items-center gap-1 text-[10px] text-emerald-600 font-medium">
+                        <span className="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
                           <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                           Active now
                         </span>
                       ) : (
-                        <span className="text-[10px] text-slate-400 font-normal">
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-normal">
                           Offline
                         </span>
                       )}
@@ -752,7 +879,7 @@ export function ChatPage() {
                       type="button"
                       onClick={handleUnblock}
                       disabled={blockingBusy}
-                      className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 disabled:opacity-50 cursor-pointer"
+                      className="rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 px-2.5 py-1 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 disabled:opacity-50 cursor-pointer"
                     >
                       {blockingBusy ? 'Unblocking...' : 'Unblock User'}
                     </button>
@@ -760,7 +887,7 @@ export function ChatPage() {
                     <button
                       type="button"
                       onClick={() => setShowBlockModal(true)}
-                      className="flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600 transition cursor-pointer"
+                      className="flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-800 px-2.5 py-1 text-xs font-medium text-slate-500 dark:text-slate-400 hover:border-red-200 dark:hover:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-600 dark:hover:text-red-400 transition cursor-pointer"
                       title="Block User"
                     >
                       <Ban className="h-3.5 w-3.5" />
@@ -769,7 +896,7 @@ export function ChatPage() {
                   ) : null}
                   <Link
                     to={`/profile/${activeFriend.id}`}
-                    className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                    className="rounded-lg border border-slate-200 dark:border-slate-800 px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
                   >
                     View Profile
                   </Link>
@@ -778,7 +905,7 @@ export function ChatPage() {
 
               {/* Error Alert */}
               {chatError && (
-                <div className="m-3 rounded-xl border border-red-200 bg-red-50 p-2.5 text-xs text-red-700">
+                <div className="m-3 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 p-2.5 text-xs text-red-700 dark:text-red-300">
                   {chatError}
                 </div>
               )}
@@ -786,7 +913,7 @@ export function ChatPage() {
               {/* Messages Thread */}
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {loadingMessages ? (
-                  <div className="py-20 text-center text-xs text-slate-400">
+                  <div className="py-20 text-center text-xs text-slate-400 dark:text-slate-500">
                     Loading messages...
                   </div>
                 ) : messages.length === 0 ? (
@@ -796,13 +923,13 @@ export function ChatPage() {
                       avatarUrl={activeFriend.avatarUrl}
                       size="lg"
                     />
-                    <h3 className="mt-3 text-sm font-bold text-slate-800">
+                    <h3 className="mt-3 text-sm font-bold text-slate-800 dark:text-slate-100">
                       {activeFriend.name}
                     </h3>
-                    <p className="mt-1 text-xs text-slate-400">
+                    <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
                       You are connected as friends on SocialBook.
                     </p>
-                    <p className="mt-3 text-xs text-blue-600 font-medium">
+                    <p className="mt-3 text-xs text-blue-600 dark:text-blue-400 font-medium">
                       Send a message to break the ice! 👋
                     </p>
                   </div>
@@ -827,13 +954,13 @@ export function ChatPage() {
                           className={`max-w-[75%] rounded-2xl px-4 py-2 text-xs shadow-xs break-words ${
                             msg.isMe
                               ? 'bg-blue-600 text-white rounded-br-xs'
-                              : 'bg-white text-slate-800 border border-slate-200 rounded-bl-xs'
+                              : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-bl-xs'
                           }`}
                         >
-                          <MessageContent content={msg.content} isMe={msg.isMe} />
+                          <MessageContent message={msg} isMe={msg.isMe} />
                           <div
                             className={`mt-1 flex items-center justify-end gap-1 text-[9px] ${
-                              msg.isMe ? 'text-blue-100' : 'text-slate-400'
+                              msg.isMe ? 'text-blue-100' : 'text-slate-400 dark:text-slate-500'
                             }`}
                           >
                             <span>{formatChatTime(msg.createdAt)}</span>
@@ -860,14 +987,14 @@ export function ChatPage() {
                       avatarUrl={activeFriend.avatarUrl}
                       size="xs"
                     />
-                    <div className="flex items-center gap-1.5 rounded-2xl bg-white border border-slate-200 px-3 py-1.5 shadow-xs">
-                      <span className="text-[11px] text-slate-500 font-medium">
+                    <div className="flex items-center gap-1.5 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-1.5 shadow-xs">
+                      <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
                         {activeFriend.name} is typing
                       </span>
                       <span className="flex gap-1 items-center ml-0.5">
-                        <span className="h-1.5 w-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:-0.3s]" />
-                        <span className="h-1.5 w-1.5 rounded-full bg-blue-600 animate-bounce [animation-delay:-0.15s]" />
-                        <span className="h-1.5 w-1.5 rounded-full bg-blue-600 animate-bounce" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-blue-600 dark:bg-blue-400 animate-bounce [animation-delay:-0.3s]" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-blue-600 dark:bg-blue-400 animate-bounce [animation-delay:-0.15s]" />
+                        <span className="h-1.5 w-1.5 rounded-full bg-blue-600 dark:bg-blue-400 animate-bounce" />
                       </span>
                     </div>
                   </div>
@@ -877,11 +1004,11 @@ export function ChatPage() {
 
               {/* Message Input Box or Block Banner */}
               {isBlockedByMe ? (
-                <div className="border-t border-slate-100 bg-slate-50 p-4 text-center">
-                  <p className="text-xs font-semibold text-slate-700">
+                <div className="border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 p-4 text-center">
+                  <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                     🚫 You have blocked {activeFriend.name}.
                   </p>
-                  <p className="mt-0.5 text-[11px] text-slate-500">
+                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
                     Unblock this user to resume sending and receiving messages.
                   </p>
                   <button
@@ -894,48 +1021,130 @@ export function ChatPage() {
                   </button>
                 </div>
               ) : isBlockedByOther ? (
-                <div className="border-t border-slate-100 bg-slate-50 p-4 text-center">
-                  <p className="text-xs font-medium text-slate-500">
+                <div className="border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60 p-4 text-center">
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
                     🚫 You cannot send messages to this conversation.
                   </p>
                 </div>
               ) : (
-                <form
-                  onSubmit={handleSendMessage}
-                  className="border-t border-slate-100 bg-white p-3"
-                >
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder="Type a message..."
-                      value={inputText}
-                      onChange={(e) => handleInputChange(e.target.value)}
-                      disabled={sending}
-                      maxLength={2000}
-                      className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none"
-                    />
-                    <button
-                      type="submit"
-                      disabled={!inputText.trim() || sending}
-                      className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 cursor-pointer"
-                      title="Send message"
-                    >
-                      <Send className="h-4 w-4" />
-                    </button>
-                  </div>
-                </form>
+                <div className="border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+                  {recorderError && !dismissRecorderError && (
+                    <div className="mb-2 flex items-center justify-between rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-300">
+                      <span>{recorderError}</span>
+                      <button
+                        type="button"
+                        onClick={() => setDismissRecorderError(true)}
+                        className="rounded-lg p-1 hover:bg-red-100 dark:hover:bg-red-900/50 cursor-pointer"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+
+                  {isRecording ? (
+                    /* Active Voice Recording Bar */
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50/70 px-3.5 py-2 dark:border-red-900/40 dark:bg-red-950/20 animate-in fade-in duration-150">
+                      {/* Pulse & Timer */}
+                      <div className="flex items-center gap-2">
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-red-600" />
+                        </span>
+                        <span className="font-mono text-xs font-bold text-red-600 dark:text-red-400">
+                          {formattedDuration}
+                        </span>
+                        <span className="text-[11px] text-slate-500 dark:text-slate-400 hidden sm:inline">
+                          Recording voice note...
+                        </span>
+                      </div>
+
+                      {/* Animated audio wave bars */}
+                      <div className="flex items-center gap-1 h-5">
+                        {[1, 2, 3, 4, 5, 6].map((i) => (
+                          <span
+                            key={i}
+                            className="w-1 rounded-full bg-red-500 animate-pulse"
+                            style={{
+                              height: `${Math.min(18, Math.max(6, (i % 3) * 6 + 6))}px`,
+                              animationDuration: `${0.4 + (i % 4) * 0.2}s`,
+                            }}
+                          />
+                        ))}
+                      </div>
+
+                      {/* Cancel & Send Buttons */}
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={handleCancelVoiceRecording}
+                          disabled={sendingAudio}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-100/60 dark:hover:bg-red-950/50 transition cursor-pointer"
+                          title="Cancel recording"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleSendVoiceRecording()}
+                          disabled={sendingAudio}
+                          className="flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white shadow-xs transition cursor-pointer disabled:opacity-50"
+                          title="Send voice note"
+                        >
+                          {sendingAudio ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Send className="h-3.5 w-3.5" />
+                          )}
+                          <span>Send</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Standard Text & Voice Input Form */
+                    <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Type a message..."
+                        value={inputText}
+                        onChange={(e) => handleInputChange(e.target.value)}
+                        disabled={sending || sendingAudio}
+                        maxLength={2000}
+                        className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 px-4 py-2.5 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 focus:outline-none"
+                      />
+                      {/* Mic Button for Recording Voice Note */}
+                      <button
+                        type="button"
+                        onClick={() => void handleStartVoiceRecording()}
+                        disabled={sending || sendingAudio}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 transition hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-950/40 dark:hover:text-blue-400 cursor-pointer disabled:opacity-40"
+                        title="Record voice note"
+                      >
+                        <Mic className="h-4 w-4" />
+                      </button>
+                      {/* Send Text Button */}
+                      <button
+                        type="submit"
+                        disabled={!inputText.trim() || sending || sendingAudio}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:opacity-40 disabled:hover:bg-blue-600 cursor-pointer"
+                        title="Send message"
+                      >
+                        <Send className="h-4 w-4" />
+                      </button>
+                    </form>
+                  )}
+                </div>
               )}
             </>
           ) : (
             // Placeholder when no conversation is selected on desktop
             <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
-              <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-blue-50 text-blue-600">
+              <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400">
                 <MessageSquare className="h-8 w-8" />
               </div>
-              <h2 className="mt-4 text-base font-bold text-slate-800">
+              <h2 className="mt-4 text-base font-bold text-slate-800 dark:text-slate-100">
                 Your Messages
               </h2>
-              <p className="mt-1.5 max-w-xs text-xs text-slate-400">
+              <p className="mt-1.5 max-w-xs text-xs text-slate-400 dark:text-slate-500">
                 Select an accepted friend from the left sidebar to start private
                 conversations on SocialBook.
               </p>

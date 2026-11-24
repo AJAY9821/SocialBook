@@ -357,13 +357,13 @@ export function FriendsPage() {
     `flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition cursor-pointer ${
       activeTab === key
         ? 'bg-blue-600 text-white shadow-sm'
-        : 'text-slate-600 hover:bg-slate-100'
+        : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
     }`;
 
   return (
     <div className="space-y-4">
       {/* Tabs Header */}
-      <div className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+      <div className="flex gap-2 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-2 shadow-sm">
         <button
           type="button"
           onClick={() => handleTabClick('friends')}
@@ -395,12 +395,12 @@ export function FriendsPage() {
       </div>
 
       {statusMsg && (
-        <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700 shadow-2xs">
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/40 px-4 py-2.5 text-sm text-emerald-700 dark:text-emerald-300 shadow-2xs">
           <span>{statusMsg}</span>
           <button
             type="button"
             onClick={() => setStatusMsg('')}
-            className="rounded-lg p-0.5 text-emerald-600 hover:bg-emerald-100 transition cursor-pointer"
+            className="rounded-lg p-0.5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition cursor-pointer"
             title="Dismiss notice"
           >
             <X className="h-4 w-4" />
@@ -409,12 +409,12 @@ export function FriendsPage() {
       )}
 
       {error && (
-        <div className="flex items-center justify-between gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700 shadow-2xs">
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/40 px-4 py-2.5 text-sm text-red-700 dark:text-red-300 shadow-2xs">
           <span>{error}</span>
           <button
             type="button"
             onClick={() => setError('')}
-            className="rounded-lg p-0.5 text-red-600 hover:bg-red-100 transition cursor-pointer"
+            className="rounded-lg p-0.5 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 transition cursor-pointer"
             title="Dismiss notice"
           >
             <X className="h-4 w-4" />
@@ -424,24 +424,24 @@ export function FriendsPage() {
 
       {/* Tab 1: My Friends */}
       {activeTab === 'friends' && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm">
           {loading ? (
-            <p className="py-8 text-center text-sm text-slate-400">
+            <p className="py-8 text-center text-sm text-slate-400 dark:text-slate-500">
               Loading friends...
             </p>
           ) : friends.length === 0 ? (
             <div className="py-10 text-center">
-              <Users className="mx-auto h-8 w-8 text-slate-300" />
-              <p className="mt-2 text-sm font-semibold text-slate-700">
+              <Users className="mx-auto h-8 w-8 text-slate-300 dark:text-slate-600" />
+              <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
                 No friends yet
               </p>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 Use the &quot;Find People&quot; tab to search for users and send
                 friend requests.
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {friends.map(({ friendshipId, friend }) => (
                 <div
                   key={friendshipId}
@@ -461,18 +461,18 @@ export function FriendsPage() {
                       <div className="flex items-center gap-2">
                         <Link
                           to={`/profile/${friend.id}`}
-                          className="block truncate text-sm font-semibold text-slate-900 hover:text-blue-600 hover:underline"
+                          className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
                         >
                           {friend.name}
                         </Link>
                         {isOnline(friend.id) && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600 border border-emerald-200">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
                             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
                             Active
                           </span>
                         )}
                       </div>
-                      <p className="truncate text-xs text-slate-500">
+                      <p className="truncate text-xs text-slate-500 dark:text-slate-400">
                         {friend.location || friend.email}
                       </p>
                     </div>
@@ -481,7 +481,7 @@ export function FriendsPage() {
                   <div className="flex items-center gap-2 shrink-0">
                     <Link
                       to={`/messages/${friend.id}`}
-                      className="flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-100"
+                      className="flex items-center gap-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/50 px-3 py-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 transition hover:bg-blue-100 dark:hover:bg-blue-900/50"
                     >
                       <MessageSquare className="h-3.5 w-3.5" />
                       Message
@@ -490,7 +490,7 @@ export function FriendsPage() {
                       type="button"
                       disabled={busyId === friend.id}
                       onClick={() => setUnfriendTarget({ id: friend.id, name: friend.name })}
-                      className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-50 cursor-pointer"
+                      className="flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 transition hover:border-red-200 dark:hover:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50 cursor-pointer"
                     >
                       <UserMinus className="h-3.5 w-3.5" />
                       Unfriend
@@ -507,16 +507,16 @@ export function FriendsPage() {
       {activeTab === 'requests' && (
         <div className="space-y-4">
           {/* Incoming */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-sm font-semibold text-slate-800">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm">
+            <h2 className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">
               Incoming Requests ({incoming.length})
             </h2>
             {incoming.length === 0 ? (
-              <p className="py-4 text-center text-xs text-slate-400">
+              <p className="py-4 text-center text-xs text-slate-400 dark:text-slate-500">
                 No pending incoming requests.
               </p>
             ) : (
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
                 {incoming.map((req) => (
                   <div
                     key={req.id}
@@ -533,11 +533,11 @@ export function FriendsPage() {
                       <div className="min-w-0">
                         <Link
                           to={`/profile/${req.requester._id}`}
-                          className="block truncate text-sm font-semibold text-slate-900 hover:text-blue-600 hover:underline"
+                          className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
                         >
                           {req.requester.name}
                         </Link>
-                        <p className="truncate text-xs text-slate-500">
+                        <p className="truncate text-xs text-slate-500 dark:text-slate-400">
                           {req.requester.email}
                         </p>
                       </div>
@@ -557,7 +557,7 @@ export function FriendsPage() {
                         type="button"
                         disabled={busyId === req.id}
                         onClick={() => void handleReject(req.id)}
-                        className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 cursor-pointer"
+                        className="flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 transition hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
                       >
                         <X className="h-3.5 w-3.5" />
                         Reject
@@ -570,16 +570,16 @@ export function FriendsPage() {
           </div>
 
           {/* Outgoing */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h2 className="mb-3 text-sm font-semibold text-slate-800">
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm">
+            <h2 className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">
               Sent Requests ({outgoing.length})
             </h2>
             {outgoing.length === 0 ? (
-              <p className="py-4 text-center text-xs text-slate-400">
+              <p className="py-4 text-center text-xs text-slate-400 dark:text-slate-500">
                 No pending sent requests.
               </p>
             ) : (
-              <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-slate-100 dark:divide-slate-800">
                 {outgoing.map((req) => (
                   <div
                     key={req.id}
@@ -596,11 +596,11 @@ export function FriendsPage() {
                       <div className="min-w-0">
                         <Link
                           to={`/profile/${req.recipient._id}`}
-                          className="block truncate text-sm font-semibold text-slate-900 hover:text-blue-600 hover:underline"
+                          className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
                         >
                           {req.recipient.name}
                         </Link>
-                        <p className="truncate text-xs text-slate-500">
+                        <p className="truncate text-xs text-slate-500 dark:text-slate-400">
                           {req.recipient.email}
                         </p>
                       </div>
@@ -610,7 +610,7 @@ export function FriendsPage() {
                       type="button"
                       disabled={busyId === req.id}
                       onClick={() => void handleCancel(req.id)}
-                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100 disabled:opacity-50 cursor-pointer shrink-0"
+                      className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 transition hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer shrink-0"
                     >
                       Cancel
                     </button>
@@ -624,26 +624,26 @@ export function FriendsPage() {
 
       {/* Tab 3: Find People */}
       {activeTab === 'find' && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-4">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm space-y-4">
           <form onSubmit={handleSearch} className="flex items-center gap-2">
             <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search people by name or email..."
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-10 text-sm outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 py-2.5 pl-9 pr-10 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 outline-none transition focus:border-blue-500 focus:bg-white dark:focus:bg-slate-800 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/30"
               />
               <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
                 {searching && (
-                  <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                  <Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />
                 )}
                 {!searching && searchQuery && (
                   <button
                     type="button"
                     onClick={handleClearSearch}
-                    className="rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition cursor-pointer"
+                    className="rounded-full p-0.5 text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-300 transition cursor-pointer"
                     title="Clear search"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -661,19 +661,19 @@ export function FriendsPage() {
           </form>
 
           {searching && searchResults.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-400">
+            <p className="py-6 text-center text-sm text-slate-400 dark:text-slate-500">
               Searching users...
             </p>
           ) : !hasSearched ? (
-            <p className="py-6 text-center text-xs text-slate-400">
+            <p className="py-6 text-center text-xs text-slate-400 dark:text-slate-500">
               Type a name or email above to find people on SocialBook.
             </p>
           ) : searchResults.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-500">
+            <p className="py-6 text-center text-sm text-slate-500 dark:text-slate-400">
               No users found matching &quot;{searchQuery}&quot;.
             </p>
           ) : (
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {searchResults.map((person) => {
                 const isFriend = friendIdSet.has(person.id);
                 const isSent = outgoingRecipientIdSet.has(person.id);
@@ -695,11 +695,11 @@ export function FriendsPage() {
                       <div className="min-w-0">
                         <Link
                           to={`/profile/${person.id}`}
-                          className="block truncate text-sm font-semibold text-slate-900 hover:text-blue-600 hover:underline"
+                          className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100 hover:text-blue-600 dark:hover:text-blue-400 hover:underline"
                         >
                           {person.name}
                         </Link>
-                        <p className="truncate text-xs text-slate-500">
+                        <p className="truncate text-xs text-slate-500 dark:text-slate-400">
                           {person.bio || person.email}
                         </p>
                       </div>
@@ -707,12 +707,12 @@ export function FriendsPage() {
 
                     <div className="flex items-center gap-2 shrink-0">
                       {isFriend ? (
-                        <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                        <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
                           <UserCheck className="h-3.5 w-3.5" />
                           Friends
                         </span>
                       ) : isSent ? (
-                        <span className="inline-flex items-center rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600">
+                        <span className="inline-flex items-center rounded-lg bg-slate-100 dark:bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-400">
                           Request Sent
                         </span>
                       ) : incomingReq ? (
@@ -740,10 +740,10 @@ export function FriendsPage() {
                       <button
                         type="button"
                         onClick={() => setBlockTarget({ id: person.id, name: person.name })}
-                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-500 hover:border-red-200 hover:bg-red-50 hover:text-red-600 transition cursor-pointer"
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:border-red-200 dark:hover:border-red-900/50 hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-600 dark:hover:text-red-400 transition cursor-pointer"
                         title={`Block ${person.name}`}
                       >
-                        <Ban className="h-3.5 w-3.5 text-slate-400" />
+                        <Ban className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
                         <span>Block</span>
                       </button>
                     </div>
@@ -756,23 +756,23 @@ export function FriendsPage() {
       )}
       {/* Tab 4: Blocked Users */}
       {activeTab === 'blocked' && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 shadow-sm">
           {loadingBlocked ? (
-            <p className="py-8 text-center text-sm text-slate-400">
+            <p className="py-8 text-center text-sm text-slate-400 dark:text-slate-500">
               Loading blocked users...
             </p>
           ) : blockedUsers.length === 0 ? (
             <div className="py-10 text-center">
-              <Ban className="mx-auto h-8 w-8 text-slate-300" />
-              <p className="mt-2 text-sm font-semibold text-slate-700">
+              <Ban className="mx-auto h-8 w-8 text-slate-300 dark:text-slate-600" />
+              <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
                 No blocked users
               </p>
-              <p className="mt-1 text-xs text-slate-500">
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 When you block someone, they won't be able to see your profile, posts, or stories, or message you.
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
               {blockedUsers.map((bUser) => (
                 <div
                   key={bUser.id}
@@ -785,10 +785,10 @@ export function FriendsPage() {
                       size="md"
                     />
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900">
+                      <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
                         {bUser.name}
                       </p>
-                      <p className="truncate text-xs text-slate-500">
+                      <p className="truncate text-xs text-slate-500 dark:text-slate-400">
                         Blocked on {new Date(bUser.blockedAt).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
                       </p>
                     </div>
@@ -798,7 +798,7 @@ export function FriendsPage() {
                     type="button"
                     disabled={unblockingId === bUser.id}
                     onClick={() => void handleUnblock(bUser.id, bUser.name)}
-                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50 cursor-pointer"
+                    className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 transition hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
                   >
                     {unblockingId === bUser.id ? 'Unblocking...' : 'Unblock'}
                   </button>

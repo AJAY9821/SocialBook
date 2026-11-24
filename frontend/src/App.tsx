@@ -13,7 +13,7 @@ import { ChatPage } from './pages/ChatPage';
 
 function AppLayout() {
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-150">
       <Navbar />
       <main className="mx-auto max-w-4xl px-4 py-6">
         <Outlet />
