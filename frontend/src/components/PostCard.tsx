@@ -25,6 +25,7 @@ import { ConfirmUnfriendModal } from './ConfirmUnfriendModal';
 import { LikesModal } from './LikesModal';
 import { ReactionTray, REACTIONS_CONFIG } from './ReactionTray';
 import { MediaCarousel } from './MediaCarousel';
+import { ConfirmDeletePostModal } from './ConfirmDeletePostModal';
 
 interface PostCardProps {
   post: Post;
@@ -62,6 +63,7 @@ export function PostCard({
   const [editFilePreview, setEditFilePreview] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [liking, setLiking] = useState(false);
   const [unfriending, setUnfriending] = useState(false);
   const [isUnfriended, setIsUnfriended] = useState(false);
@@ -175,20 +177,17 @@ export function PostCard({
     }
   };
 
-  const handleDelete = async () => {
-    const confirmed = window.confirm(
-      'Are you sure you want to delete this post?',
-    );
-    if (!confirmed) return;
-
+  const handleDeleteConfirm = async () => {
     setError('');
     setDeleting(true);
     try {
       await postsApi.deletePost(post.id);
+      setShowDeleteModal(false);
       onPostDeleted(post.id);
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to delete post.'));
       setDeleting(false);
+      setShowDeleteModal(false);
     }
   };
 
@@ -356,7 +355,7 @@ export function PostCard({
             </button>
             <button
               type="button"
-              onClick={handleDelete}
+              onClick={() => setShowDeleteModal(true)}
               disabled={deleting}
               className="rounded-lg p-1.5 text-slate-400 dark:text-slate-500 transition hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50 cursor-pointer"
               title="Delete post"
@@ -738,6 +737,14 @@ export function PostCard({
         loading={unfriending}
         onClose={() => setShowUnfriendModal(false)}
         onConfirm={() => void handleUnfriendAuthor()}
+      />
+
+      {/* Confirm Delete Post Modal */}
+      <ConfirmDeletePostModal
+        isOpen={showDeleteModal}
+        loading={deleting}
+        onClose={() => setShowDeleteModal(false)}
+        onConfirm={() => void handleDeleteConfirm()}
       />
 
       {/* Likes Modal */}
