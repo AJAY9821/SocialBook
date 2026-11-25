@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { authApi, type LoginPayload, type RegisterPayload } from '../api/auth';
-import { TOKEN_STORAGE_KEY } from '../api/client';
+import { TOKEN_STORAGE_KEY, REFRESH_TOKEN_STORAGE_KEY } from '../api/client';
 import type { User } from '../types';
 
 interface AuthContextValue {
@@ -38,6 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(res.user);
     } catch {
       localStorage.removeItem(TOKEN_STORAGE_KEY);
+      localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
       setUser(null);
     } finally {
       setLoading(false);
@@ -59,6 +60,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (payload: LoginPayload) => {
     const res = await authApi.login(payload);
     localStorage.setItem(TOKEN_STORAGE_KEY, res.accessToken);
+    if (res.refreshToken) {
+      localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, res.refreshToken);
+    }
     setUser(res.user);
   };
 
@@ -69,11 +73,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      await authApi.logout();
+      const refreshToken = localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY) || undefined;
+      await authApi.logout(refreshToken);
     } catch {
       // Even if token already expired on server, clear local session
     } finally {
       localStorage.removeItem(TOKEN_STORAGE_KEY);
+      localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
       setUser(null);
     }
   };

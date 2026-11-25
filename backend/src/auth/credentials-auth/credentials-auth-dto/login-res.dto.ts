@@ -14,6 +14,11 @@ export class LoginResDto extends BaseResponse {
   accessToken: string;
 
   @ApiProperty({
+    example: 'Random refresh token',
+  })
+  refreshToken: string;
+
+  @ApiProperty({
     example: 'timeStamp',
   })
   expiry: Date;

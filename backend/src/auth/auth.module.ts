@@ -6,8 +6,6 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { User, UserSchema } from 'models/user';
 import { CommonModule } from 'src/common/common.module';
 import {
-  AccessToken,
-  AccessTokenSchema,
   RefreshToken,
   RefreshTokenSchema,
   VerificationToken,
@@ -21,7 +19,6 @@ import { AuthGuard } from 'src/middlewares';
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },
       { name: VerificationToken.name, schema: VerificationTokenSchema },
-      { name: AccessToken.name, schema: AccessTokenSchema },
       { name: RefreshToken.name, schema: RefreshTokenSchema },
     ]),
     JwtModule.register({}),
@@ -29,6 +26,6 @@ import { AuthGuard } from 'src/middlewares';
   ],
   controllers: [CredentialsAuthController],
   providers: [CredentialsAuthService, UserVerificationService, AuthGuard],
-  exports: [MongooseModule, CommonModule, UserVerificationService, AuthGuard],
+  exports: [MongooseModule, CommonModule, UserVerificationService, AuthGuard, JwtModule],
 })
 export class AuthModule {}

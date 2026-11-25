@@ -12,11 +12,12 @@ import {
   LoginReqDto,
   LoginResDto,
   LogoutResDto,
+  RefreshTokenResDto,
   RegisterReqDto,
   RegisterResDto,
 } from './credentials-auth-dto';
 import { CustomLogger } from 'src/common/services/logger.service';
-import { AccessToken, RefreshToken } from 'models/auth';
+import { RefreshToken } from 'models/auth';
 import * as argon2 from 'argon2';
 import { JwtService } from '@nestjs/jwt';
 import { UserProfileDto } from 'src/user/user/user-dto';
@@ -26,9 +27,6 @@ export class CredentialsAuthService {
   constructor(
     @InjectModel(User.name)
     private readonly userModel: Model<User>,
-
-    @InjectModel(AccessToken.name)
-    private readonly accessTokenModel: Model<AccessToken>,
 
     @InjectModel(RefreshToken.name)
     private readonly refreshTokenModel: Model<RefreshToken>,
@@ -87,61 +85,88 @@ export class CredentialsAuthService {
 
     await this.verifyAccountPassword(user, password);
 
-    // Expire any previous active session tokens for this user
-    await this.refreshTokenModel.updateMany(
-      { userId: user.id, isExpired: false },
-      { isExpired: true },
-    );
-
-    await this.accessTokenModel.updateMany(
-      { userId: user.id, isExpired: false },
-      { isExpired: true },
-    );
-
     const refreshTokenData = await this.generateRefreshToken(user);
-    const accessTokenData = await this.generateAccessToken(
-      user,
-      refreshTokenData,
-    );
+    const accessTokenData = await this.generateAccessToken(user);
 
     return this.sendLoginResponse(
       user,
       accessTokenData.token,
+      refreshTokenData.token,
       accessTokenData.expiryInMs,
     );
   }
 
-  async logout(authHeader: string): Promise<LogoutResDto> {
-    const authorization = authHeader?.startsWith('Bearer ')
-      ? authHeader.split(' ')[1]
-      : null;
+  async refresh(refreshToken: string): Promise<RefreshTokenResDto> {
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token is required.');
+    }
 
-    if (!authorization) {
+    try {
+      this.jwtService.verify(refreshToken, {
+        secret: process.env.JWT_REFRESH_TOKEN_SECRET as string,
+      });
+    } catch {
       throw new UnauthorizedException(
-        'Access token is missing. Please log in again.',
+        'Refresh token is invalid or expired. Please log in again.',
       );
     }
 
-    const accessToken = await this.accessTokenModel.findOne({
-      token: authorization,
+    const tokenDoc = await this.refreshTokenModel.findOne({
+      token: refreshToken,
       isExpired: false,
     });
 
-    if (!accessToken) {
+    if (!tokenDoc || tokenDoc.expiry <= new Date()) {
+      if (tokenDoc) {
+        tokenDoc.isExpired = true;
+        await tokenDoc.save();
+      }
+      throw new UnauthorizedException('Session expired. Please log in again.');
+    }
+
+    const user = await this.userModel.findById(tokenDoc.userId);
+    if (!user || user.isDeleted) {
       throw new UnauthorizedException(
-        'Access token is missing or already expired. Please log in again.',
+        'User account no longer exists or has been deactivated.',
       );
     }
 
-    await this.accessTokenModel.findByIdAndUpdate(accessToken._id, {
-      expiry: new Date(),
-      isExpired: true,
-    });
+    const accessTokenData = await this.generateAccessToken(user);
 
-    await this.refreshTokenModel.findByIdAndUpdate(accessToken.refreshTokenId, {
-      expiry: new Date(),
-      isExpired: true,
-    });
+    return {
+      error: false,
+      statusCode: HttpStatus.OK,
+      msg: 'Session refreshed successfully!',
+      accessToken: accessTokenData.token,
+      refreshToken: tokenDoc.token,
+      expiry: accessTokenData.expiryInMs,
+    };
+  }
+
+  async logout(
+    authHeader?: string,
+    refreshToken?: string,
+  ): Promise<LogoutResDto> {
+    if (refreshToken) {
+      await this.refreshTokenModel.updateOne(
+        { token: refreshToken },
+        { isExpired: true, expiry: new Date() },
+      );
+    } else if (authHeader) {
+      const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+      try {
+        const decoded: any = this.jwtService.decode(token);
+        const userId = decoded?.user?.id || decoded?.sub;
+        if (userId) {
+          await this.refreshTokenModel.updateMany(
+            { userId, isExpired: false },
+            { isExpired: true, expiry: new Date() },
+          );
+        }
+      } catch {
+        // Silently continue
+      }
+    }
 
     return {
       error: false,
@@ -209,39 +234,31 @@ export class CredentialsAuthService {
     });
   }
 
-  async generateAccessToken(
-    user: User,
-    refreshToken: RefreshToken,
-  ): Promise<{
+  async generateAccessToken(user: User): Promise<{
     token: string;
     expiryInMs: Date;
   }> {
+    const userId = user.id || (user as any)._id?.toString();
     const payload = {
+      sub: userId,
       email: user.email,
+      role: (user as any).role || 'user',
       user: {
-        id: user.id,
+        id: userId,
         name: user.name,
       },
     };
 
     const jwtAccessToken = this.jwtService.sign(payload, {
-      expiresIn: process.env.JWT_ACCESS_TOKEN_LIFETIME || '1d',
-      subject: user.email,
+      expiresIn: process.env.JWT_ACCESS_TOKEN_LIFETIME || '15m',
       algorithm: 'HS512',
       secret: process.env.JWT_ACCESS_TOKEN_SECRET as string,
     });
 
     const accessExpiryMs =
-      Number(process.env.ACCESS_TOKEN_EXPIRY) || 24 * 60 * 60 * 1000;
+      Number(process.env.ACCESS_TOKEN_EXPIRY) || 15 * 60 * 1000;
 
     const expiryInMs = new Date(Date.now() + accessExpiryMs);
-
-    await this.accessTokenModel.create({
-      token: jwtAccessToken,
-      expiry: expiryInMs,
-      userId: user.id,
-      refreshTokenId: refreshToken.id,
-    });
 
     return { token: jwtAccessToken, expiryInMs };
   }
@@ -249,6 +266,7 @@ export class CredentialsAuthService {
   private sendLoginResponse(
     user: User,
     accessToken: string,
+    refreshToken: string,
     expiry: Date,
   ): LoginResDto {
     const userProfile = UserProfileDto.transform(user);
@@ -258,6 +276,7 @@ export class CredentialsAuthService {
       statusCode: HttpStatus.OK,
       msg: 'You have logged in successfully!',
       accessToken,
+      refreshToken,
       expiry,
       user: userProfile,
     } as LoginResDto;

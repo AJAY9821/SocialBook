@@ -11,10 +11,10 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Server, Socket } from 'socket.io';
-import { AccessToken } from 'models/auth';
 import { User } from 'models/user';
 import { Friendship, FRIENDSHIP_STATUS } from 'models/friendship';
 import { CustomLogger } from 'src/common/services';
+import { JwtService } from '@nestjs/jwt';
 
 @WebSocketGateway({
   cors: {
@@ -46,8 +46,7 @@ export class ChatGateway
   private socketUserMap = new Map<string, string>();
 
   constructor(
-    @InjectModel(AccessToken.name)
-    private readonly accessTokenModel: Model<AccessToken>,
+    private readonly jwtService: JwtService,
     @InjectModel(User.name)
     private readonly userModel: Model<User>,
     @InjectModel(Friendship.name)
@@ -80,20 +79,27 @@ export class ChatGateway
         return;
       }
 
-      // Validate access token
-      const accessToken = await this.accessTokenModel.findOne({
-        token,
-        isExpired: false,
-      });
-
-      if (!accessToken || accessToken.expiry <= new Date()) {
+      // Fast in-memory cryptographic verification in server RAM
+      let payload: any;
+      try {
+        payload = this.jwtService.verify(token, {
+          secret: process.env.JWT_ACCESS_TOKEN_SECRET as string,
+        });
+      } catch {
         this.logger.debug(`Socket connection rejected: Invalid or expired token (${client.id})`);
         client.disconnect(true);
         return;
       }
 
+      const rawUserId = payload?.user?.id || payload?.sub;
+      if (!rawUserId) {
+        this.logger.debug(`Socket connection rejected: Malformed token payload (${client.id})`);
+        client.disconnect(true);
+        return;
+      }
+
       // Verify user exists and is active
-      const user = await this.userModel.findById(accessToken.userId.toString());
+      const user = await this.userModel.findById(rawUserId);
       if (!user || user.isDeleted) {
         this.logger.debug(`Socket connection rejected: User not found or deleted (${client.id})`);
         client.disconnect(true);

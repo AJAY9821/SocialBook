@@ -31,9 +31,22 @@ export const authApi = {
       statusCode: number;
       msg: string;
       accessToken: string;
+      refreshToken: string;
       expiry: string;
       user: User;
     }>('/auth/login', payload);
+    return data;
+  },
+
+  async refreshToken(refreshToken: string) {
+    const { data } = await apiClient.post<{
+      error: boolean;
+      statusCode: number;
+      msg: string;
+      accessToken: string;
+      refreshToken: string;
+      expiry: string;
+    }>('/auth/refresh', { refreshToken });
     return data;
   },
 
@@ -46,12 +59,12 @@ export const authApi = {
     return data;
   },
 
-  async logout() {
+  async logout(refreshToken?: string) {
     const { data } = await apiClient.post<{
       error: boolean;
       statusCode: number;
       msg: string;
-    }>('/auth/logout');
+    }>('/auth/logout', { refreshToken });
     return data;
   },
 
