@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Check,
@@ -15,10 +15,12 @@ import { postsApi } from '../api/posts';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
-import type { CommentItem } from '../types';
+import type { CommentItem, ReactionType } from '../types';
 import { Avatar } from './Avatar';
 import { EmojiPickerPopover } from './EmojiPickerPopover';
 import { GifPickerModal } from './GifPickerModal';
+import { LikesModal } from './LikesModal';
+import { ReactionTray, REACTIONS_CONFIG } from './ReactionTray';
 
 interface CommentSectionProps {
   postId: string;
@@ -54,17 +56,23 @@ export function CommentSection({
   const [selectedGif, setSelectedGif] = useState<string | null>(null);
   const [replyGif, setReplyGif] = useState<string | null>(null);
   const [isGifModalOpen, setIsGifModalOpen] = useState(false);
-  const [gifTarget, setGifTarget] = useState<'comment' | 'reply'>('comment');
+  const [gifTarget, setGifTarget] = useState<'comment' | 'reply' | 'edit'>('comment');
 
   // Editing state (works for both comments and replies)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
+  const [editGifUrl, setEditGifUrl] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
 
   // Replying state
   const [replyingToId, setReplyingToId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [submittingReply, setSubmittingReply] = useState(false);
+
+  // Reaction states
+  const [activeTrayCommentId, setActiveTrayCommentId] = useState<string | null>(null);
+  const [likesModalCommentId, setLikesModalCommentId] = useState<string | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Collapsed / expanded replies map (true = show replies)
   const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
@@ -197,30 +205,51 @@ export function CommentSection({
     }
   };
 
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditText('');
+    setEditGifUrl(null);
+  };
+
   const handleSaveEdit = async (commentId: string) => {
-    if (!editText.trim()) return;
+    if (!editText.trim() && !editGifUrl) return;
     setError('');
     setSavingEdit(true);
     try {
-      const res = await postsApi.updateComment(commentId, editText.trim());
+      const res = await postsApi.updateComment(
+        commentId,
+        editText.trim(),
+        editGifUrl,
+      );
       setComments((prev) =>
         prev.map((c) => {
           if (c.id === commentId) {
-            return { ...c, content: res.comment.content };
+            return {
+              ...c,
+              content: res.comment.content,
+              gifUrl: res.comment.gifUrl,
+              commentType: res.comment.commentType,
+            };
           }
           if (c.replies && c.replies.some((r) => r.id === commentId)) {
             return {
               ...c,
               replies: c.replies.map((r) =>
-                r.id === commentId ? { ...r, content: res.comment.content } : r,
+                r.id === commentId
+                  ? {
+                      ...r,
+                      content: res.comment.content,
+                      gifUrl: res.comment.gifUrl,
+                      commentType: res.comment.commentType,
+                    }
+                  : r,
               ),
             };
           }
           return c;
         }),
       );
-      setEditingId(null);
-      setEditText('');
+      handleCancelEdit();
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to update comment.'));
     } finally {
@@ -256,6 +285,116 @@ export function CommentSection({
     } catch (err) {
       setError(getErrorMessage(err, 'Failed to delete comment.'));
     }
+  };
+
+  const handleCommentReaction = async (
+    commentId: string,
+    reaction: ReactionType,
+    isReply: boolean,
+    parentId?: string,
+  ) => {
+    setActiveTrayCommentId(null);
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+
+    // Find the comment to compute next state
+    let target: CommentItem | undefined;
+    if (isReply && parentId) {
+      target = comments
+        .find((c) => c.id === parentId)
+        ?.replies?.find((r) => r.id === commentId);
+    } else {
+      target = comments.find((c) => c.id === commentId);
+    }
+
+    if (!target) return;
+
+    const prevReaction = target.myReaction || null;
+    const prevCount = target.likesCount || 0;
+    const isSame = prevReaction === reaction;
+    const nextReaction: ReactionType | null = isSame ? null : reaction;
+    const nextCount = isSame
+      ? Math.max(0, prevCount - 1)
+      : prevReaction
+      ? prevCount
+      : prevCount + 1;
+
+    const updateItem = (item: CommentItem): CommentItem => {
+      if (item.id !== commentId) return item;
+      const nextReactionsCount = { ...(item.reactionsCount || {}) };
+      if (prevReaction) {
+        nextReactionsCount[prevReaction] = Math.max(
+          0,
+          (nextReactionsCount[prevReaction] || 1) - 1,
+        );
+        if (nextReactionsCount[prevReaction] === 0) {
+          delete nextReactionsCount[prevReaction];
+        }
+      }
+      if (nextReaction) {
+        nextReactionsCount[nextReaction] =
+          (nextReactionsCount[nextReaction] || 0) + 1;
+      }
+      return {
+        ...item,
+        isLikedByMe: !!nextReaction,
+        myReaction: nextReaction,
+        likesCount: nextCount,
+        reactionsCount: nextReactionsCount,
+      };
+    };
+
+    setComments((prev) =>
+      prev.map((c) => {
+        if (c.id === commentId) return updateItem(c);
+        if (c.replies && c.replies.some((r) => r.id === commentId)) {
+          return {
+            ...c,
+            replies: c.replies.map((r) =>
+              r.id === commentId ? updateItem(r) : r,
+            ),
+          };
+        }
+        return c;
+      }),
+    );
+
+    try {
+      await postsApi.reactToComment(commentId, reaction);
+    } catch {
+      // Re-sync silently on error
+      void fetchComments(page, false, true);
+    }
+  };
+
+  const renderReactionsBadge = (
+    likesCount = 0,
+    reactionsCount: Record<string, number> = {},
+    onClick?: () => void,
+  ) => {
+    if (likesCount <= 0) return null;
+    const sorted = Object.entries(reactionsCount)
+      .filter(([_, count]) => count > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([type]) => REACTIONS_CONFIG[type as ReactionType]?.emoji || '👍');
+
+    const topEmojis = sorted.length > 0 ? sorted : ['👍'];
+
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="inline-flex items-center gap-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700/90 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:text-slate-300 shadow-2xs hover:bg-slate-50 dark:hover:bg-slate-750 transition cursor-pointer"
+        title="View who reacted"
+      >
+        <span className="flex -space-x-1 select-none leading-none">
+          {topEmojis.map((emoji, idx) => (
+            <span key={idx} className="inline-block">{emoji}</span>
+          ))}
+        </span>
+        <span>{likesCount}</span>
+      </button>
+    );
   };
 
   const toggleThread = (commentId: string) => {
@@ -386,7 +525,8 @@ export function CommentSection({
                                 type="button"
                                 onClick={() => {
                                   setEditingId(comment.id);
-                                  setEditText(comment.content);
+                                  setEditText(comment.content || '');
+                                  setEditGifUrl(comment.gifUrl || null);
                                 }}
                                 className="rounded p-0.5 text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
                                 title="Edit comment"
@@ -409,30 +549,88 @@ export function CommentSection({
                       </div>
 
                       {isEditing ? (
-                        <div className="mt-1.5 flex items-center gap-1.5">
-                          <input
-                            type="text"
-                            value={editText}
-                            onChange={(e) => setEditText(e.target.value)}
-                            className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-xs text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500"
-                          />
-                          <button
-                            type="button"
-                            disabled={savingEdit || !editText.trim()}
-                            onClick={() => void handleSaveEdit(comment.id)}
-                            className="rounded-lg bg-blue-600 p-1 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
-                            title="Save"
-                          >
-                            <Check className="h-3 w-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditingId(null)}
-                            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                            title="Cancel"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
+                        <div className="mt-2 space-y-2 min-w-[240px] sm:min-w-[320px]">
+                          {editGifUrl && (
+                            <div className="relative inline-block rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-900 shadow-sm animate-in fade-in zoom-in-95 max-w-xs sm:max-w-sm">
+                              <img
+                                src={editGifUrl}
+                                alt="Edit GIF preview"
+                                className="max-h-48 w-full object-contain bg-slate-950/20"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setEditGifUrl(null)}
+                                className="absolute top-1.5 right-1.5 rounded-full bg-black/70 p-1 text-white hover:bg-black transition cursor-pointer"
+                                title="Remove GIF"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-1.5">
+                            <div className="relative flex-1 flex items-center">
+                              <input
+                                type="text"
+                                value={editText}
+                                onChange={(e) => setEditText(e.target.value)}
+                                placeholder={
+                                  editGifUrl
+                                    ? 'Add a caption to your GIF...'
+                                    : 'Edit comment...'
+                                }
+                                className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 pl-2.5 pr-16 py-1.5 text-xs text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500"
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    if (!savingEdit && (editText.trim() || editGifUrl)) {
+                                      void handleSaveEdit(comment.id);
+                                    }
+                                  } else if (e.key === 'Escape') {
+                                    handleCancelEdit();
+                                  }
+                                }}
+                              />
+                              <div className="absolute right-1.5 flex items-center gap-1">
+                                <EmojiPickerPopover
+                                  onSelect={(emoji) => setEditText((prev) => prev + emoji)}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setGifTarget('edit');
+                                    setIsGifModalOpen(true);
+                                  }}
+                                  className={`flex items-center justify-center rounded px-1 py-0.5 text-[10px] font-bold transition cursor-pointer ${
+                                    editGifUrl
+                                      ? 'bg-pink-100 text-pink-600 dark:bg-pink-950/50 dark:text-pink-400'
+                                      : 'text-slate-500 hover:bg-slate-200/70 hover:text-pink-600 dark:text-slate-400 dark:hover:bg-slate-700/60 dark:hover:text-pink-400'
+                                  }`}
+                                  title={editGifUrl ? 'Change GIF' : 'Add GIF'}
+                                >
+                                  GIF
+                                </button>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              disabled={savingEdit || (!editText.trim() && !editGifUrl)}
+                              onClick={() => void handleSaveEdit(comment.id)}
+                              className="rounded-lg bg-blue-600 p-1.5 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer shrink-0"
+                              title="Save"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCancelEdit}
+                              className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1.5 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer shrink-0"
+                              title="Cancel"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <div>
@@ -455,9 +653,58 @@ export function CommentSection({
                       )}
                     </div>
 
-                    {/* Comment Footer: Time & Reply button */}
+                    {/* Comment Footer: Time, React/Like & Reply button */}
                     <div className="mt-1 flex items-center gap-3 pl-2 text-[11px] text-slate-500 dark:text-slate-400">
                       <span>{formatShortDate(comment.createdAt)}</span>
+
+                      {/* React / Like Button with hover ReactionTray */}
+                      <div
+                        className="relative inline-flex items-center"
+                        onMouseEnter={() => {
+                          if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                          hoverTimerRef.current = setTimeout(() => {
+                            setActiveTrayCommentId(comment.id);
+                          }, 300);
+                        }}
+                        onMouseLeave={() => {
+                          if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                            void handleCommentReaction(
+                              comment.id,
+                              comment.myReaction || 'like',
+                              false,
+                            );
+                          }}
+                          className={`font-semibold cursor-pointer transition flex items-center gap-1 ${
+                            comment.myReaction && REACTIONS_CONFIG[comment.myReaction]
+                              ? `${REACTIONS_CONFIG[comment.myReaction].color}`
+                              : 'text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400'
+                          }`}
+                        >
+                          {comment.myReaction && REACTIONS_CONFIG[comment.myReaction] ? (
+                            <>
+                              <span>{REACTIONS_CONFIG[comment.myReaction].emoji}</span>
+                              <span>{REACTIONS_CONFIG[comment.myReaction].label}</span>
+                            </>
+                          ) : (
+                            <span>Like</span>
+                          )}
+                        </button>
+
+                        <ReactionTray
+                          isOpen={activeTrayCommentId === comment.id}
+                          activeReaction={comment.myReaction}
+                          onSelect={(rx) => void handleCommentReaction(comment.id, rx, false)}
+                          onClose={() => setActiveTrayCommentId(null)}
+                          compact={true}
+                        />
+                      </div>
+
                       <button
                         type="button"
                         onClick={() => {
@@ -473,6 +720,13 @@ export function CommentSection({
                       >
                         {isReplying ? 'Cancel' : 'Reply'}
                       </button>
+
+                      {/* Reaction Badge if any likes */}
+                      {renderReactionsBadge(
+                        comment.likesCount,
+                        comment.reactionsCount,
+                        () => setLikesModalCommentId(comment.id),
+                      )}
 
                       {hasReplies && (
                         <button
@@ -616,7 +870,8 @@ export function CommentSection({
                                         type="button"
                                         onClick={() => {
                                           setEditingId(reply.id);
-                                          setEditText(reply.content);
+                                          setEditText(reply.content || '');
+                                          setEditGifUrl(reply.gifUrl || null);
                                         }}
                                         className="rounded p-0.5 text-slate-400 dark:text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 hover:text-blue-600 dark:hover:text-blue-400 cursor-pointer"
                                         title="Edit reply"
@@ -639,30 +894,88 @@ export function CommentSection({
                               </div>
 
                               {isEditingReply ? (
-                                <div className="mt-1 flex items-center gap-1">
-                                  <input
-                                    type="text"
-                                    value={editText}
-                                    onChange={(e) => setEditText(e.target.value)}
-                                    className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2 py-0.5 text-xs text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500"
-                                  />
-                                  <button
-                                    type="button"
-                                    disabled={savingEdit || !editText.trim()}
-                                    onClick={() => void handleSaveEdit(reply.id)}
-                                    className="rounded bg-blue-600 p-1 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer"
-                                    title="Save"
-                                  >
-                                    <Check className="h-2.5 w-2.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setEditingId(null)}
-                                    className="rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                                    title="Cancel"
-                                  >
-                                    <X className="h-2.5 w-2.5" />
-                                  </button>
+                                <div className="mt-1.5 space-y-1.5 min-w-[200px] sm:min-w-[260px]">
+                                  {editGifUrl && (
+                                    <div className="relative inline-block rounded-lg overflow-hidden border border-slate-200 dark:border-slate-700 bg-slate-900 shadow-sm animate-in fade-in zoom-in-95 max-w-[220px] sm:max-w-[260px]">
+                                      <img
+                                        src={editGifUrl}
+                                        alt="Edit GIF preview"
+                                        className="max-h-36 w-full object-contain bg-slate-950/20"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditGifUrl(null)}
+                                        className="absolute top-1 right-1 rounded-full bg-black/70 p-0.5 text-white hover:bg-black transition cursor-pointer"
+                                        title="Remove GIF"
+                                      >
+                                        <X className="h-2.5 w-2.5" />
+                                      </button>
+                                    </div>
+                                  )}
+
+                                  <div className="flex items-center gap-1">
+                                    <div className="relative flex-1 flex items-center">
+                                      <input
+                                        type="text"
+                                        value={editText}
+                                        onChange={(e) => setEditText(e.target.value)}
+                                        placeholder={
+                                          editGifUrl
+                                            ? 'Add caption...'
+                                            : 'Edit reply...'
+                                        }
+                                        className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 pl-2 pr-14 py-1 text-xs text-slate-900 dark:text-slate-100 outline-none focus:border-blue-500"
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            if (!savingEdit && (editText.trim() || editGifUrl)) {
+                                              void handleSaveEdit(reply.id);
+                                            }
+                                          } else if (e.key === 'Escape') {
+                                            handleCancelEdit();
+                                          }
+                                        }}
+                                      />
+                                      <div className="absolute right-1 flex items-center gap-0.5">
+                                        <EmojiPickerPopover
+                                          onSelect={(emoji) => setEditText((prev) => prev + emoji)}
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setGifTarget('edit');
+                                            setIsGifModalOpen(true);
+                                          }}
+                                          className={`flex items-center justify-center rounded px-1 py-0.5 text-[9px] font-bold transition cursor-pointer ${
+                                            editGifUrl
+                                              ? 'bg-pink-100 text-pink-600 dark:bg-pink-950/50 dark:text-pink-400'
+                                              : 'text-slate-500 hover:bg-slate-200/70 hover:text-pink-600 dark:text-slate-400 dark:hover:bg-slate-700/60 dark:hover:text-pink-400'
+                                          }`}
+                                          title={editGifUrl ? 'Change GIF' : 'Add GIF'}
+                                        >
+                                          GIF
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    <button
+                                      type="button"
+                                      disabled={savingEdit || (!editText.trim() && !editGifUrl)}
+                                      onClick={() => void handleSaveEdit(reply.id)}
+                                      className="rounded bg-blue-600 p-1 text-white hover:bg-blue-700 disabled:opacity-50 cursor-pointer shrink-0"
+                                      title="Save"
+                                    >
+                                      <Check className="h-2.5 w-2.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={handleCancelEdit}
+                                      className="rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-1 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer shrink-0"
+                                      title="Cancel"
+                                    >
+                                      <X className="h-2.5 w-2.5" />
+                                    </button>
+                                  </div>
                                 </div>
                               ) : (
                                 <div>
@@ -685,9 +998,59 @@ export function CommentSection({
                               )}
                             </div>
 
-                            {/* Reply row footer: Time and Reply button */}
+                            {/* Reply row footer: Time, React/Like and Reply button */}
                             <div className="mt-0.5 flex items-center gap-2 pl-1.5 text-[10px] text-slate-400 dark:text-slate-500">
                               <span>{formatShortDate(reply.createdAt)}</span>
+
+                              {/* Like / React Button with hover ReactionTray */}
+                              <div
+                                className="relative inline-flex items-center"
+                                onMouseEnter={() => {
+                                  if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                                  hoverTimerRef.current = setTimeout(() => {
+                                    setActiveTrayCommentId(reply.id);
+                                  }, 300);
+                                }}
+                                onMouseLeave={() => {
+                                  if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+                                    void handleCommentReaction(
+                                      reply.id,
+                                      reply.myReaction || 'like',
+                                      true,
+                                      comment.id,
+                                    );
+                                  }}
+                                  className={`font-semibold cursor-pointer transition flex items-center gap-0.5 ${
+                                    reply.myReaction && REACTIONS_CONFIG[reply.myReaction]
+                                      ? `${REACTIONS_CONFIG[reply.myReaction].color}`
+                                      : 'text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400'
+                                  }`}
+                                >
+                                  {reply.myReaction && REACTIONS_CONFIG[reply.myReaction] ? (
+                                    <>
+                                      <span>{REACTIONS_CONFIG[reply.myReaction].emoji}</span>
+                                      <span>{REACTIONS_CONFIG[reply.myReaction].label}</span>
+                                    </>
+                                  ) : (
+                                    <span>Like</span>
+                                  )}
+                                </button>
+
+                                <ReactionTray
+                                  isOpen={activeTrayCommentId === reply.id}
+                                  activeReaction={reply.myReaction}
+                                  onSelect={(rx) => void handleCommentReaction(reply.id, rx, true, comment.id)}
+                                  onClose={() => setActiveTrayCommentId(null)}
+                                  compact={true}
+                                />
+                              </div>
+
                               <button
                                 type="button"
                                 onClick={() => {
@@ -698,6 +1061,13 @@ export function CommentSection({
                               >
                                 Reply
                               </button>
+
+                              {/* Reaction Badge if any likes on reply */}
+                              {renderReactionsBadge(
+                                reply.likesCount,
+                                reply.reactionsCount,
+                                () => setLikesModalCommentId(reply.id),
+                              )}
                             </div>
                           </div>
                         </div>
@@ -739,10 +1109,20 @@ export function CommentSection({
         onSelect={(url) => {
           if (gifTarget === 'reply') {
             setReplyGif(url);
+          } else if (gifTarget === 'edit') {
+            setEditGifUrl(url);
           } else {
             setSelectedGif(url);
           }
         }}
+      />
+
+      {/* Comment Reactions Details Modal */}
+      <LikesModal
+        commentId={likesModalCommentId || undefined}
+        isOpen={Boolean(likesModalCommentId)}
+        onClose={() => setLikesModalCommentId(null)}
+        title="Reactions on Comment"
       />
     </div>
   );

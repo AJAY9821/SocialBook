@@ -28,6 +28,9 @@ export class Comment extends Document {
   @Prop({ type: String, required: false, default: null })
   gifUrl?: string | null;
 
+  @Prop({ type: Number, default: 0, min: 0 })
+  likesCount: number;
+
   @Prop({ type: Boolean, default: false })
   isDeleted: boolean;
 

@@ -15,7 +15,9 @@ interface LikeEntry {
 }
 
 interface LikesModalProps {
-  postId: string;
+  postId?: string;
+  commentId?: string;
+  title?: string;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -35,7 +37,15 @@ function formatLikeDate(dateString: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
+export function LikesModal({
+  postId,
+  commentId,
+  title,
+  isOpen,
+  onClose,
+}: LikesModalProps) {
+  const targetId = commentId || postId;
+  const isComment = Boolean(commentId);
   const [likes, setLikes] = useState<LikeEntry[]>([]);
   const [likesCount, setLikesCount] = useState<number>(0);
   const [reactionsCount, setReactionsCount] = useState<Record<string, number>>({});
@@ -64,11 +74,11 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
       setSelectedReaction('all');
       setPage(1);
     }
-  }, [isOpen, postId]);
+  }, [isOpen, targetId]);
 
   // Fetch likes & reaction breakdown when modal opens or filter changes
   useEffect(() => {
-    if (!isOpen || !postId) return;
+    if (!isOpen || !targetId) return;
 
     let active = true;
     setLoading(true);
@@ -78,12 +88,20 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
 
     const fetchInitialLikes = async () => {
       try {
-        const res = await postsApi.getPostLikes(
-          postId,
-          1,
-          20,
-          selectedReaction === 'all' ? undefined : selectedReaction,
-        );
+        const res = isComment
+          ? await postsApi.getCommentReactions(
+              targetId,
+              1,
+              20,
+              selectedReaction === 'all' ? undefined : selectedReaction,
+            )
+          : await postsApi.getPostLikes(
+              targetId,
+              1,
+              20,
+              selectedReaction === 'all' ? undefined : selectedReaction,
+            );
+
         if (active) {
           setLikes(res.likes || []);
           setLikesCount(res.likesCount || 0);
@@ -107,22 +125,30 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
     return () => {
       active = false;
     };
-  }, [isOpen, postId, selectedReaction]);
+  }, [isOpen, targetId, isComment, selectedReaction]);
 
   // Load more likes for current reaction filter
   const handleLoadMore = async () => {
-    if (loadingMore || page >= totalPages || !postId) return;
+    if (loadingMore || page >= totalPages || !targetId) return;
 
     setLoadingMore(true);
     const nextPage = page + 1;
 
     try {
-      const res = await postsApi.getPostLikes(
-        postId,
-        nextPage,
-        20,
-        selectedReaction === 'all' ? undefined : selectedReaction,
-      );
+      const res = isComment
+        ? await postsApi.getCommentReactions(
+            targetId,
+            nextPage,
+            20,
+            selectedReaction === 'all' ? undefined : selectedReaction,
+          )
+        : await postsApi.getPostLikes(
+            targetId,
+            nextPage,
+            20,
+            selectedReaction === 'all' ? undefined : selectedReaction,
+          );
+
       setLikes((prev) => [...prev, ...(res.likes || [])]);
       setPage(nextPage);
       setTotalPages(res.pagination?.totalPages || 1);
@@ -153,7 +179,7 @@ export function LikesModal({ postId, isOpen, onClose }: LikesModalProps) {
               <ThumbsUp className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             </span>
             <h3 className="text-base font-bold text-slate-800 dark:text-slate-100">
-              People who reacted {likesCount > 0 ? `(${likesCount})` : ''}
+              {title || 'People who reacted'} {likesCount > 0 ? `(${likesCount})` : ''}
             </h3>
           </div>
           <button

@@ -75,6 +75,8 @@ interface ReactionTrayProps {
   activeReaction?: ReactionType | null;
   onSelect: (reaction: ReactionType) => void;
   onClose: () => void;
+  compact?: boolean;
+  className?: string;
 }
 
 export function ReactionTray({
@@ -82,6 +84,8 @@ export function ReactionTray({
   activeReaction,
   onSelect,
   onClose,
+  compact = false,
+  className,
 }: ReactionTrayProps) {
   const trayRef = useRef<HTMLDivElement>(null);
 
@@ -108,7 +112,12 @@ export function ReactionTray({
   return (
     <div
       ref={trayRef}
-      className="absolute -top-12 left-0 sm:left-1 z-40 flex items-center gap-1 sm:gap-1.5 rounded-full border border-slate-200/90 dark:border-slate-700 bg-white/95 dark:bg-slate-800/95 px-2.5 py-1.5 shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150"
+      className={
+        className ||
+        (compact
+          ? 'absolute -top-10 left-0 z-40 flex items-center gap-1 rounded-full border border-slate-200/90 dark:border-slate-700 bg-white/95 dark:bg-slate-800/95 px-2 py-1 shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150'
+          : 'absolute -top-12 left-0 sm:left-1 z-40 flex items-center gap-1 sm:gap-1.5 rounded-full border border-slate-200/90 dark:border-slate-700 bg-white/95 dark:bg-slate-800/95 px-2.5 py-1.5 shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-150')
+      }
       onMouseLeave={onClose}
     >
       {REACTIONS_LIST.map((item) => {
@@ -121,14 +130,20 @@ export function ReactionTray({
               e.stopPropagation();
               onSelect(item.type);
             }}
-            className={`group/emoji relative flex h-9 w-9 items-center justify-center rounded-full text-2xl transition-all duration-150 hover:scale-135 hover:-translate-y-1.5 active:scale-110 cursor-pointer ${
+            className={`group/emoji relative flex items-center justify-center rounded-full transition-all duration-150 hover:scale-135 hover:-translate-y-1 active:scale-110 cursor-pointer ${
+              compact ? 'h-7 w-7 text-lg' : 'h-9 w-9 text-2xl'
+            } ${
               isCurrent ? 'bg-slate-100 dark:bg-slate-700 ring-2 ring-blue-500/40' : ''
             }`}
             title={item.label}
           >
             <span className="select-none leading-none">{item.emoji}</span>
             {/* Tooltip on hover */}
-            <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 rounded-full bg-slate-900/90 dark:bg-slate-700 px-2 py-0.5 text-[11px] font-medium text-white opacity-0 shadow-sm transition-opacity group-hover/emoji:opacity-100 whitespace-nowrap">
+            <span
+              className={`pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full bg-slate-900/90 dark:bg-slate-700 px-1.5 py-0.5 font-medium text-white opacity-0 shadow-sm transition-opacity group-hover/emoji:opacity-100 whitespace-nowrap ${
+                compact ? '-top-7 text-[10px]' : '-top-8 text-[11px]'
+              }`}
+            >
               {item.label}
             </span>
           </button>

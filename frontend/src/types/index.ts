@@ -82,6 +82,10 @@ export interface CommentItem {
   content: string;
   commentType?: 'text' | 'gif';
   gifUrl?: string | null;
+  likesCount?: number;
+  isLikedByMe?: boolean;
+  myReaction?: ReactionType | null;
+  reactionsCount?: Record<string, number>;
   replies?: CommentItem[];
   createdAt: string;
   updatedAt: string;

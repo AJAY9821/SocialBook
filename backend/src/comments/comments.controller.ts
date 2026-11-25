@@ -20,7 +20,7 @@ import {
 import { Request } from 'express';
 import { AuthGuard } from 'src/middlewares';
 import { CommentsService } from './comments.service';
-import { CreateCommentDto, UpdateCommentDto } from './dto';
+import { CreateCommentDto, ReactCommentDto, UpdateCommentDto } from './dto';
 
 @ApiTags('Comments')
 @ApiBearerAuth()
@@ -48,13 +48,63 @@ export class CommentsController {
   @Get(':postId')
   async getPostComments(
     @Param('postId') postId: string,
+    @Req() req: Request,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
+    const userId = req['user']?._id?.toString();
     return this.commentsService.getPostComments(
       postId,
       Number(page),
       Number(limit),
+      userId,
+    );
+  }
+
+  @ApiParam({ name: 'commentId', description: 'Comment ID to react to' })
+  @ApiResponse({ status: 200, description: 'Comment reacted successfully.' })
+  @Post(':commentId/react')
+  async reactToComment(
+    @Param('commentId') commentId: string,
+    @Req() req: Request,
+    @Body() reactCommentDto?: ReactCommentDto,
+  ) {
+    const userId = req['user']._id.toString();
+    return this.commentsService.reactToComment(
+      commentId,
+      userId,
+      reactCommentDto?.reactionType,
+    );
+  }
+
+  @ApiParam({ name: 'commentId', description: 'Comment ID to remove reaction' })
+  @ApiResponse({ status: 200, description: 'Comment reaction removed.' })
+  @Delete(':commentId/react')
+  async unlikeComment(
+    @Param('commentId') commentId: string,
+    @Req() req: Request,
+  ) {
+    const userId = req['user']._id.toString();
+    return this.commentsService.unlikeComment(commentId, userId);
+  }
+
+  @ApiParam({ name: 'commentId', description: 'Comment ID' })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiQuery({ name: 'reaction', required: false, example: 'love' })
+  @ApiResponse({ status: 200, description: 'List of users who reacted to the comment.' })
+  @Get(':commentId/reactions')
+  async getCommentReactions(
+    @Param('commentId') commentId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('reaction') reaction?: string,
+  ) {
+    return this.commentsService.getCommentReactions(
+      commentId,
+      Number(page),
+      Number(limit),
+      reaction,
     );
   }
 

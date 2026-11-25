@@ -215,13 +215,17 @@ export const postsApi = {
     return data;
   },
 
-  async updateComment(commentId: string, content: string) {
+  async updateComment(commentId: string, content: string, gifUrl?: string | null) {
     const { data } = await apiClient.patch<{
       error: boolean;
       statusCode: number;
       msg: string;
       comment: CommentItem;
-    }>(`/comments/${commentId}`, { content });
+    }>(`/comments/${commentId}`, {
+      content,
+      gifUrl: gifUrl === undefined ? undefined : (gifUrl || null),
+      commentType: gifUrl ? 'gif' : 'text',
+    });
     return data;
   },
 
@@ -231,6 +235,49 @@ export const postsApi = {
       statusCode: number;
       msg: string;
     }>(`/comments/${commentId}`);
+    return data;
+  },
+
+  async reactToComment(commentId: string, reactionType: ReactionType = 'like') {
+    const { data } = await apiClient.post<{
+      error: boolean;
+      statusCode: number;
+      action: 'added' | 'updated' | 'removed';
+      msg: string;
+      isLikedByMe: boolean;
+      myReaction: ReactionType | null;
+      likesCount: number;
+      reactionsCount?: Record<string, number>;
+    }>(`/comments/${commentId}/react`, { reactionType });
+    return data;
+  },
+
+  async getCommentReactions(
+    commentId: string,
+    page = 1,
+    limit = 20,
+    reaction?: string,
+  ) {
+    const { data } = await apiClient.get<{
+      error: boolean;
+      statusCode: number;
+      likesCount: number;
+      reactionsCount: Record<string, number>;
+      likes: {
+        id: string;
+        user: PopulatedUser;
+        reactionType: ReactionType;
+        createdAt: string;
+      }[];
+      pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        totalPages: number;
+      };
+    }>(`/comments/${commentId}/reactions`, {
+      params: { page, limit, reaction },
+    });
     return data;
   },
 
