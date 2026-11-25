@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -329,6 +329,8 @@ export function ChatPage() {
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const isFirstLoadRef = useRef(true);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendingRef = useRef(false);
+  const sendingAudioRef = useRef(false);
 
   const scrollToBottom = (behavior: ScrollBehavior = 'smooth') => {
     messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' });
@@ -379,15 +381,37 @@ export function ChatPage() {
       const newMsg = customEvent.detail;
       if (!newMsg) return;
 
+      const incomingIsMe = newMsg.sender.id === currentUser?.id;
+      const normalizedMsg: ChatMessage = {
+        ...newMsg,
+        isMe: incomingIsMe,
+      };
+
       // If viewing chat with this friend or sent from our other open tab
       if (
         friendId &&
         (newMsg.sender.id === friendId ||
-          (newMsg.sender.id === currentUser?.id && newMsg.recipient.id === friendId))
+          (incomingIsMe && newMsg.recipient.id === friendId))
       ) {
         setMessages((prev) => {
-          if (prev.some((m) => m.id === newMsg.id)) return prev;
-          return [...prev, newMsg];
+          if (prev.some((m) => m.id === normalizedMsg.id)) return prev;
+
+          // If this is our own message echo, reconcile against pending optimistic temp message
+          if (incomingIsMe) {
+            const tempIdx = prev.findIndex(
+              (m) =>
+                m.id.startsWith('temp-') &&
+                m.sender.id === currentUser?.id &&
+                (m.content === normalizedMsg.content || m.messageType === normalizedMsg.messageType),
+            );
+            if (tempIdx !== -1) {
+              const updated = [...prev];
+              updated[tempIdx] = normalizedMsg;
+              return updated;
+            }
+          }
+
+          return [...prev, normalizedMsg];
         });
         setTimeout(() => scrollToBottom('smooth'), 50);
 
@@ -424,6 +448,49 @@ export function ChatPage() {
     window.addEventListener('chat:new_message', handleNewMessage);
     return () => {
       window.removeEventListener('chat:new_message', handleNewMessage);
+    };
+  }, [friendId, currentUser?.id]);
+
+  // Real-time instant read receipts (double tick ✓✓)
+  useEffect(() => {
+    const handleMessagesRead = (e: Event) => {
+      const customEvent = e as CustomEvent<{ readByUserId: string; readAt: string }>;
+      const data = customEvent.detail;
+      if (!data?.readByUserId) return;
+
+      // If the currently open chat is with the friend who just read our messages
+      if (friendId && data.readByUserId === friendId) {
+        setMessages((prev) =>
+          prev.map((m) => {
+            const isSentByMe = m.sender?.id ? m.sender.id === currentUser?.id : Boolean(m.isMe);
+            if (isSentByMe && !m.isRead) {
+              return { ...m, isRead: true, readAt: data.readAt };
+            }
+            return m;
+          }),
+        );
+      }
+
+      // Also update sidebar conversation preview snippet
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.friend.id === data.readByUserId && c.latestMessage?.isMe) {
+            return {
+              ...c,
+              latestMessage: {
+                ...c.latestMessage,
+                isRead: true,
+              },
+            };
+          }
+          return c;
+        }),
+      );
+    };
+
+    window.addEventListener('chat:messages_read', handleMessagesRead);
+    return () => {
+      window.removeEventListener('chat:messages_read', handleMessagesRead);
     };
   }, [friendId, currentUser?.id]);
 
@@ -480,7 +547,25 @@ export function ChatPage() {
             const existingIds = new Set(prev.map((m) => m.id));
             const newIncoming = res.messages.filter((m) => !existingIds.has(m.id));
             if (newIncoming.length === 0) return prev;
-            return [...prev, ...newIncoming];
+
+            let current = [...prev];
+            for (const inc of newIncoming) {
+              if (inc.sender.id === currentUser?.id) {
+                const tempIdx = current.findIndex(
+                  (m) =>
+                    m.id.startsWith('temp-') &&
+                    m.sender.id === currentUser?.id &&
+                    (m.content === inc.content || m.messageType === inc.messageType),
+                );
+                if (tempIdx !== -1) {
+                  current[tempIdx] = inc;
+                  existingIds.add(inc.id);
+                  continue;
+                }
+              }
+              current.push(inc);
+            }
+            return current;
           });
         }
       } catch (err) {
@@ -545,6 +630,7 @@ export function ChatPage() {
     if (friendId) {
       isFirstLoadRef.current = true;
       loadChatHistory(friendId);
+      void chatApi.markAsRead(friendId);
       // Mark as read in conversation list locally
       setConversations((prev) =>
         prev.map((c) =>
@@ -609,9 +695,10 @@ export function ChatPage() {
   // Handle Send Message
   const handleSendMessage = async (e?: FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputText.trim() || !friendId || sending) return;
+    if (!inputText.trim() || !friendId || sendingRef.current || sending) return;
 
     const content = inputText.trim();
+    sendingRef.current = true;
     setInputText('');
     setSending(true);
 
@@ -656,10 +743,14 @@ export function ChatPage() {
         content,
       });
 
-      // Replace temp message with server response
-      setMessages((prev) =>
-        prev.map((m) => (m.id === tempId ? res.message : m)),
-      );
+      // Replace temp message with server response, or remove temp if already merged by socket/polling
+      setMessages((prev) => {
+        const alreadyExists = prev.some((m) => m.id === res.message.id);
+        if (alreadyExists) {
+          return prev.filter((m) => m.id !== tempId);
+        }
+        return prev.map((m) => (m.id === tempId ? res.message : m));
+      });
 
       // Refresh conversations snippet
       loadConversations(false);
@@ -669,6 +760,7 @@ export function ChatPage() {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setInputText(content); // restore text so user doesn't lose it
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   };
@@ -684,7 +776,7 @@ export function ChatPage() {
   };
 
   const handleSendVoiceRecording = async () => {
-    if (!friendId || sendingAudio) return;
+    if (!friendId || sendingAudioRef.current || sendingAudio) return;
 
     const recordResult = await stopRecording();
     if (!recordResult) return;
@@ -694,6 +786,7 @@ export function ChatPage() {
       return;
     }
 
+    sendingAudioRef.current = true;
     setSendingAudio(true);
     setChatError('');
 
@@ -745,16 +838,21 @@ export function ChatPage() {
       // Clean up optimistic object URL
       URL.revokeObjectURL(optimisticAudioUrl);
 
-      // Replace temp message with server response
-      setMessages((prev) =>
-        prev.map((m) => (m.id === tempId ? res.message : m)),
-      );
+      // Replace temp message with server response, or remove temp if already merged by socket/polling
+      setMessages((prev) => {
+        const alreadyExists = prev.some((m) => m.id === res.message.id);
+        if (alreadyExists) {
+          return prev.filter((m) => m.id !== tempId);
+        }
+        return prev.map((m) => (m.id === tempId ? res.message : m));
+      });
 
       loadConversations(false);
     } catch (err) {
       setChatError(getErrorMessage(err, 'Failed to send audio message.'));
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
     } finally {
+      sendingAudioRef.current = false;
       setSendingAudio(false);
     }
   };
@@ -763,6 +861,16 @@ export function ChatPage() {
   const filteredConversations = conversations.filter((c) =>
     c.friend.name.toLowerCase().includes(searchQuery.toLowerCase()),
   );
+
+  // Safety net: Deduplicate messages by ID to prevent duplicate React keys under any race condition
+  const uniqueMessages = useMemo(() => {
+    const seen = new Set<string>();
+    return messages.filter((msg) => {
+      if (!msg?.id || seen.has(msg.id)) return false;
+      seen.add(msg.id);
+      return true;
+    });
+  }, [messages]);
 
   return (
     <div className="mx-auto max-w-5xl overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm">
@@ -1010,7 +1118,7 @@ export function ChatPage() {
                   <div className="py-20 text-center text-xs text-slate-400 dark:text-slate-500">
                     Loading messages...
                   </div>
-                ) : messages.length === 0 ? (
+                ) : uniqueMessages.length === 0 ? (
                   <div className="py-24 text-center">
                     <Avatar
                       name={activeFriend.name}
@@ -1028,15 +1136,16 @@ export function ChatPage() {
                     </p>
                   </div>
                 ) : (
-                  messages.map((msg) => {
+                  uniqueMessages.map((msg) => {
+                    const isMe = msg.sender?.id ? msg.sender.id === currentUser?.id : Boolean(msg.isMe);
                     return (
                       <div
                         key={msg.id}
                         className={`flex items-end gap-2 ${
-                          msg.isMe ? 'justify-end' : 'justify-start'
+                          isMe ? 'justify-end' : 'justify-start'
                         }`}
                       >
-                        {!msg.isMe && (
+                        {!isMe && (
                           <Avatar
                             name={msg.sender.name}
                             avatarUrl={msg.sender.avatarUrl}
@@ -1046,19 +1155,19 @@ export function ChatPage() {
 
                         <div
                           className={`max-w-[75%] rounded-2xl px-4 py-2 text-xs shadow-xs break-words ${
-                            msg.isMe
+                            isMe
                               ? 'bg-blue-600 text-white rounded-br-xs'
                               : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-bl-xs'
                           }`}
                         >
-                          <MessageContent message={msg} isMe={msg.isMe} />
+                          <MessageContent message={msg} isMe={isMe} />
                           <div
                             className={`mt-1 flex items-center justify-end gap-1 text-[9px] ${
-                              msg.isMe ? 'text-blue-100' : 'text-slate-400 dark:text-slate-500'
+                              isMe ? 'text-blue-100' : 'text-slate-400 dark:text-slate-500'
                             }`}
                           >
                             <span>{formatChatTime(msg.createdAt)}</span>
-                            {msg.isMe && (
+                            {isMe && (
                               <span title={msg.isRead ? 'Read' : 'Sent'}>
                                 {msg.isRead ? (
                                   <CheckCheck className="h-3 w-3 text-blue-200" />

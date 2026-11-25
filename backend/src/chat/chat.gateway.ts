@@ -206,10 +206,24 @@ export class ChatGateway
    * Push newly sent message immediately to recipient and sender rooms
    */
   emitNewMessage(recipientId: string, senderId: string, message: any) {
-    // Deliver instantly to recipient's room
-    this.server.to(`user:${recipientId}`).emit('chat:new_message', { message });
-    // Also deliver to sender's other tabs
-    this.server.to(`user:${senderId}`).emit('chat:new_message', { message });
+    // Deliver instantly to recipient's room with isMe = false
+    this.server.to(`user:${recipientId}`).emit('chat:new_message', {
+      message: { ...message, isMe: false },
+    });
+    // Also deliver to sender's other tabs with isMe = true
+    this.server.to(`user:${senderId}`).emit('chat:new_message', {
+      message: { ...message, isMe: true },
+    });
+  }
+
+  /**
+   * Push real-time read receipt to the sender when their messages are read
+   */
+  emitMessagesRead(senderId: string, readByUserId: string) {
+    this.server.to(`user:${senderId}`).emit('chat:messages_read', {
+      readByUserId,
+      readAt: new Date().toISOString(),
+    });
   }
 
   /**

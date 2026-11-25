@@ -374,7 +374,7 @@ export class ChatService {
     ]);
 
     // Automatically mark all incoming unread messages from this friend as read
-    await this.messageModel.updateMany(
+    const readResult = await this.messageModel.updateMany(
       {
         sender: friendObjectId,
         recipient: currentObjectId,
@@ -384,6 +384,14 @@ export class ChatService {
         $set: { isRead: true, readAt: new Date() },
       },
     );
+
+    if (readResult.modifiedCount > 0) {
+      try {
+        this.chatGateway.emitMessagesRead(friendId, userId);
+      } catch {
+        // Non-blocking socket emit
+      }
+    }
 
     // Reverse to chronological order (oldest to newest) for chat display
     const chronologicalMessages = messages
@@ -420,7 +428,7 @@ export class ChatService {
       throw new BadRequestException('Invalid friend ID.');
     }
 
-    await this.messageModel.updateMany(
+    const readResult = await this.messageModel.updateMany(
       {
         sender: new Types.ObjectId(friendId),
         recipient: new Types.ObjectId(userId),
@@ -430,6 +438,14 @@ export class ChatService {
         $set: { isRead: true, readAt: new Date() },
       },
     );
+
+    if (readResult.modifiedCount > 0) {
+      try {
+        this.chatGateway.emitMessagesRead(friendId, userId);
+      } catch {
+        // Non-blocking socket emit
+      }
+    }
 
     return {
       error: false,

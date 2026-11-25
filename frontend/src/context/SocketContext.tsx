@@ -142,6 +142,21 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       },
     );
 
+    // 6. Messages marked as read (read receipt / double tick)
+    socketInstance.on(
+      'chat:messages_read',
+      (data: { readByUserId: string; readAt: string }) => {
+        if (data?.readByUserId) {
+          window.dispatchEvent(
+            new CustomEvent<{ readByUserId: string; readAt: string }>(
+              'chat:messages_read',
+              { detail: data },
+            ),
+          );
+        }
+      },
+    );
+
     return () => {
       socketInstance.disconnect();
       socketRef.current = null;
