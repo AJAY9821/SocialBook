@@ -24,6 +24,7 @@ import { ShareModal } from './ShareModal';
 import { ConfirmUnfriendModal } from './ConfirmUnfriendModal';
 import { LikesModal } from './LikesModal';
 import { ReactionTray, REACTIONS_CONFIG } from './ReactionTray';
+import { MediaCarousel } from './MediaCarousel';
 
 interface PostCardProps {
   post: Post;
@@ -420,22 +421,16 @@ export function PostCard({
                 className="max-h-56 w-full rounded-xl border border-slate-200 dark:border-slate-700 object-cover"
               />
             )
-          ) : post.mediaType === 'video' || post.videoUrl ? (
-            <div className="relative overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-black">
-              <video
-                src={post.videoUrl}
-                controls
-                playsInline
-                className="max-h-56 w-full object-contain"
-              />
-            </div>
-          ) : post.imageUrl ? (
-            <img
-              src={post.imageUrl}
-              alt="Post preview"
-              className="max-h-56 w-full rounded-xl border border-slate-200 dark:border-slate-700 object-cover"
+          ) : (
+            <MediaCarousel
+              media={post.media}
+              imageUrl={post.imageUrl}
+              videoUrl={post.videoUrl}
+              videoDuration={post.videoDuration}
+              compact={true}
+              altText="Post preview"
             />
-          ) : null}
+          )}
 
           <div className="flex items-center justify-between gap-2">
             <button
@@ -475,23 +470,14 @@ export function PostCard({
           <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800 dark:text-slate-100">
             {post.content}
           </p>
-          {post.mediaType === 'video' || post.videoUrl ? (
-            <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-black">
-              <video
-                src={post.videoUrl}
-                controls
-                playsInline
-                preload="metadata"
-                className="max-h-[500px] w-full object-contain"
-              />
-            </div>
-          ) : post.imageUrl ? (
-            <img
-              src={post.imageUrl}
-              alt="Post attachment"
-              className="mt-3 max-h-96 w-full rounded-xl border border-slate-100 dark:border-slate-800 object-cover"
-            />
-          ) : null}
+          {/* Post Media Carousel (Swipe left/right, dot indicators, video play/pause) */}
+          <MediaCarousel
+            media={post.media}
+            imageUrl={post.imageUrl}
+            videoUrl={post.videoUrl}
+            videoDuration={post.videoDuration}
+            altText={post.content ? `${post.content.slice(0, 30)}...` : 'Post attachment'}
+          />
 
           {/* Embedded Original Post if this is a repost */}
           {post.originalPost && (
@@ -536,25 +522,15 @@ export function PostCard({
                 </p>
               )}
 
-              {post.originalPost.mediaType === 'video' || post.originalPost.videoUrl ? (
-                <div className="mt-2.5 overflow-hidden rounded-lg border border-slate-200 dark:border-slate-700 bg-black">
-                  <video
-                    src={post.originalPost.videoUrl}
-                    controls
-                    playsInline
-                    preload="metadata"
-                    className="max-h-72 w-full object-contain"
-                  />
-                </div>
-              ) : post.originalPost.imageUrl ? (
-                <Link to={`/posts/${post.originalPost.id}`}>
-                  <img
-                    src={post.originalPost.imageUrl}
-                    alt="Shared attachment"
-                    className="mt-2.5 max-h-72 w-full rounded-lg border border-slate-200 dark:border-slate-700 object-cover"
-                  />
-                </Link>
-              ) : null}
+              {/* Repost Media Carousel */}
+              <MediaCarousel
+                media={post.originalPost.media}
+                imageUrl={post.originalPost.imageUrl}
+                videoUrl={post.originalPost.videoUrl}
+                videoDuration={post.originalPost.videoDuration}
+                compact={true}
+                altText="Shared attachment"
+              />
             </div>
           )}
         </div>

@@ -35,19 +35,41 @@ export class PostsService {
     createPostDto: CreatePostDto,
     uploadedImageUrl?: string,
     uploadedVideoUrl?: string,
+    mediaItems: Array<{ type: 'image' | 'video'; url: string; duration?: number }> = [],
   ) {
-    let mediaType: 'text' | 'image' | 'video' = 'text';
-    if (uploadedVideoUrl) {
+    let finalMedia = [...mediaItems];
+    if (finalMedia.length === 0) {
+      if (uploadedImageUrl) finalMedia.push({ type: 'image', url: uploadedImageUrl });
+      if (uploadedVideoUrl) {
+        finalMedia.push({
+          type: 'video',
+          url: uploadedVideoUrl,
+          duration: createPostDto.videoDuration ? Number(createPostDto.videoDuration) : 0,
+        });
+      }
+    }
+
+    const hasImages = finalMedia.some((m) => m.type === 'image');
+    const hasVideos = finalMedia.some((m) => m.type === 'video');
+
+    let mediaType: 'text' | 'image' | 'video' | 'mixed' = 'text';
+    if (hasImages && hasVideos) {
+      mediaType = 'mixed';
+    } else if (hasVideos) {
       mediaType = 'video';
-    } else if (uploadedImageUrl) {
+    } else if (hasImages) {
       mediaType = 'image';
     }
+
+    const firstImage = finalMedia.find((m) => m.type === 'image')?.url || uploadedImageUrl || '';
+    const firstVideo = finalMedia.find((m) => m.type === 'video')?.url || uploadedVideoUrl || '';
 
     const post = await this.postModel.create({
       user: new Types.ObjectId(userId),
       content: createPostDto.content,
-      imageUrl: uploadedImageUrl || '',
-      videoUrl: uploadedVideoUrl || '',
+      imageUrl: firstImage,
+      videoUrl: firstVideo,
+      media: finalMedia,
       mediaType,
       videoDuration: createPostDto.videoDuration || 0,
     });
@@ -335,6 +357,7 @@ export class PostsService {
     updatePostDto: UpdatePostDto,
     uploadedImageUrl?: string,
     uploadedVideoUrl?: string,
+    mediaItems: Array<{ type: 'image' | 'video'; url: string; duration?: number }> = [],
   ) {
     if (!Types.ObjectId.isValid(postId)) {
       throw new BadRequestException('Invalid post ID.');
@@ -343,7 +366,8 @@ export class PostsService {
     if (
       updatePostDto.content === undefined &&
       !uploadedImageUrl &&
-      !uploadedVideoUrl
+      !uploadedVideoUrl &&
+      mediaItems.length === 0
     ) {
       throw new BadRequestException(
         'Provide content or a media file to update.',
@@ -365,18 +389,49 @@ export class PostsService {
       post.content = updatePostDto.content;
     }
 
-    if (uploadedVideoUrl) {
-      post.videoUrl = uploadedVideoUrl;
-      post.imageUrl = '';
-      post.mediaType = 'video';
-      if (updatePostDto.videoDuration !== undefined) {
-        post.videoDuration = updatePostDto.videoDuration;
+    if (mediaItems.length > 0) {
+      post.media = mediaItems;
+      const firstImg = mediaItems.find((m) => m.type === 'image');
+      const firstVid = mediaItems.find((m) => m.type === 'video');
+      post.imageUrl = firstImg?.url || '';
+      post.videoUrl = firstVid?.url || '';
+      if (firstImg && firstVid) {
+        post.mediaType = 'mixed';
+      } else if (firstVid) {
+        post.mediaType = 'video';
+      } else if (firstImg) {
+        post.mediaType = 'image';
       }
+    } else if (uploadedVideoUrl && uploadedImageUrl) {
+      post.videoUrl = uploadedVideoUrl;
+      post.imageUrl = uploadedImageUrl;
+      post.media = [
+        { type: 'image', url: uploadedImageUrl },
+        {
+          type: 'video',
+          url: uploadedVideoUrl,
+          duration: updatePostDto.videoDuration ? Number(updatePostDto.videoDuration) : 0,
+        },
+      ];
+      post.mediaType = 'mixed';
+    } else if (uploadedVideoUrl) {
+      post.videoUrl = uploadedVideoUrl;
+      post.media = [
+        {
+          type: 'video',
+          url: uploadedVideoUrl,
+          duration: updatePostDto.videoDuration ? Number(updatePostDto.videoDuration) : 0,
+        },
+      ];
+      post.mediaType = 'video';
     } else if (uploadedImageUrl) {
       post.imageUrl = uploadedImageUrl;
-      post.videoUrl = '';
+      post.media = [{ type: 'image', url: uploadedImageUrl }];
       post.mediaType = 'image';
-      post.videoDuration = 0;
+    }
+
+    if (updatePostDto.videoDuration !== undefined) {
+      post.videoDuration = updatePostDto.videoDuration;
     }
 
     await post.save();
@@ -598,9 +653,39 @@ export class PostsService {
     const postObj = post.toObject ? post.toObject() : (post as any);
     const resolvedReaction = typeof myReaction === 'string' ? myReaction : null;
     const user = postObj.user || postObj.author;
+
+    let resolvedMedia: Array<{ type: 'image' | 'video'; url: string; duration?: number }> = [];
+    if (Array.isArray(postObj.media) && postObj.media.length > 0) {
+      resolvedMedia = postObj.media.map((item: any) => ({
+        type: item.type === 'video' ? 'video' : 'image',
+        url: item.url,
+        duration: item.duration || 0,
+      }));
+    } else {
+      if (postObj.imageUrl) {
+        resolvedMedia.push({ type: 'image', url: postObj.imageUrl });
+      }
+      if (postObj.videoUrl) {
+        resolvedMedia.push({
+          type: 'video',
+          url: postObj.videoUrl,
+          duration: postObj.videoDuration || 0,
+        });
+      }
+    }
+
+    const hasImages = resolvedMedia.some((m) => m.type === 'image') || Boolean(postObj.imageUrl);
+    const hasVideos = resolvedMedia.some((m) => m.type === 'video') || Boolean(postObj.videoUrl);
+
     const mediaType =
       postObj.mediaType ||
-      (postObj.videoUrl ? 'video' : postObj.imageUrl ? 'image' : 'text');
+      (hasImages && hasVideos
+        ? 'mixed'
+        : hasVideos
+          ? 'video'
+          : hasImages
+            ? 'image'
+            : 'text');
     return {
       id: postObj._id.toString(),
       user,
@@ -608,6 +693,7 @@ export class PostsService {
       content: postObj.content || '',
       imageUrl: postObj.imageUrl || '',
       videoUrl: postObj.videoUrl || '',
+      media: resolvedMedia,
       mediaType,
       videoDuration: postObj.videoDuration || 0,
       likesCount: postObj.likesCount || 0,
@@ -634,9 +720,39 @@ export class PostsService {
   private formatOriginalPost(orig: any) {
     if (!orig || !orig._id) return null;
     const user = orig.user || orig.author;
+
+    let origMedia: Array<{ type: 'image' | 'video'; url: string; duration?: number }> = [];
+    if (Array.isArray(orig.media) && orig.media.length > 0) {
+      origMedia = orig.media.map((item: any) => ({
+        type: item.type === 'video' ? 'video' : 'image',
+        url: item.url,
+        duration: item.duration || 0,
+      }));
+    } else {
+      if (orig.imageUrl) {
+        origMedia.push({ type: 'image', url: orig.imageUrl });
+      }
+      if (orig.videoUrl) {
+        origMedia.push({
+          type: 'video',
+          url: orig.videoUrl,
+          duration: orig.videoDuration || 0,
+        });
+      }
+    }
+
+    const hasImages = origMedia.some((m) => m.type === 'image') || Boolean(orig.imageUrl);
+    const hasVideos = origMedia.some((m) => m.type === 'video') || Boolean(orig.videoUrl);
+
     const mediaType =
       orig.mediaType ||
-      (orig.videoUrl ? 'video' : orig.imageUrl ? 'image' : 'text');
+      (hasImages && hasVideos
+        ? 'mixed'
+        : hasVideos
+          ? 'video'
+          : hasImages
+            ? 'image'
+            : 'text');
     return {
       id: orig._id.toString(),
       user,
@@ -644,6 +760,7 @@ export class PostsService {
       content: orig.content || '',
       imageUrl: orig.imageUrl || '',
       videoUrl: orig.videoUrl || '',
+      media: origMedia,
       mediaType,
       videoDuration: orig.videoDuration || 0,
       likesCount: orig.likesCount || 0,

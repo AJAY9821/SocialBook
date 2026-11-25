@@ -106,7 +106,7 @@ export class CommentsService {
     // Fetch top-level comments (parentComment is null or undefined)
     const filter = {
       post: post._id,
-      $or: [{ parentComment: null }, { parentId: null }],
+      parentComment: null,
       isDeleted: false,
     };
 

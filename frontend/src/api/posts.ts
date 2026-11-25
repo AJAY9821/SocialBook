@@ -11,6 +11,8 @@ export interface CreatePostPayload {
   content: string;
   image?: File;
   video?: File;
+  images?: File[];
+  videos?: File[];
   media?: File;
   videoDuration?: number;
 }
@@ -19,6 +21,8 @@ export interface UpdatePostPayload {
   content?: string;
   image?: File;
   video?: File;
+  images?: File[];
+  videos?: File[];
   media?: File;
   videoDuration?: number;
 }
@@ -27,12 +31,20 @@ export const postsApi = {
   async createPost(payload: CreatePostPayload) {
     const formData = new FormData();
     formData.append('content', payload.content);
-    if (payload.media) {
-      formData.append('media', payload.media);
-    } else if (payload.video) {
-      formData.append('video', payload.video);
-    } else if (payload.image) {
+    if (payload.images && payload.images.length > 0) {
+      payload.images.forEach((file) => formData.append('images', file));
+    }
+    if (payload.image) {
       formData.append('image', payload.image);
+    }
+    if (payload.videos && payload.videos.length > 0) {
+      payload.videos.forEach((file) => formData.append('videos', file));
+    }
+    if (payload.video) {
+      formData.append('video', payload.video);
+    }
+    if (payload.media && !payload.image && !payload.video) {
+      formData.append('media', payload.media);
     }
     if (payload.videoDuration !== undefined) {
       formData.append('videoDuration', String(payload.videoDuration));
@@ -83,12 +95,20 @@ export const postsApi = {
     if (payload.content !== undefined) {
       formData.append('content', payload.content);
     }
-    if (payload.media) {
-      formData.append('media', payload.media);
-    } else if (payload.video) {
-      formData.append('video', payload.video);
-    } else if (payload.image) {
+    if (payload.images && payload.images.length > 0) {
+      payload.images.forEach((file) => formData.append('images', file));
+    }
+    if (payload.image) {
       formData.append('image', payload.image);
+    }
+    if (payload.videos && payload.videos.length > 0) {
+      payload.videos.forEach((file) => formData.append('videos', file));
+    }
+    if (payload.video) {
+      formData.append('video', payload.video);
+    }
+    if (payload.media && !payload.image && !payload.video) {
+      formData.append('media', payload.media);
     }
     if (payload.videoDuration !== undefined) {
       formData.append('videoDuration', String(payload.videoDuration));

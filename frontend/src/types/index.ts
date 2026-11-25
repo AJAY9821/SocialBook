@@ -42,6 +42,12 @@ export type ReactionType =
   | 'sad'
   | 'angry';
 
+export interface MediaItem {
+  type: 'image' | 'video';
+  url: string;
+  duration?: number;
+}
+
 export interface Post {
   id: string;
   user: PopulatedUser;
@@ -49,7 +55,8 @@ export interface Post {
   content: string;
   imageUrl?: string;
   videoUrl?: string;
-  mediaType?: 'text' | 'image' | 'video';
+  media?: MediaItem[];
+  mediaType?: 'text' | 'image' | 'video' | 'mixed';
   videoDuration?: number;
   likesCount: number;
   commentsCount: number;

@@ -18,13 +18,25 @@ export class Post extends Document {
 
   @Prop({
     type: String,
-    enum: ['text', 'image', 'video'],
+    enum: ['text', 'image', 'video', 'mixed'],
     default: 'text',
   })
-  mediaType?: 'text' | 'image' | 'video';
+  mediaType?: 'text' | 'image' | 'video' | 'mixed';
 
   @Prop({ type: Number, required: false, default: 0 })
   videoDuration?: number;
+
+  @Prop({
+    type: [
+      {
+        type: { type: String, enum: ['image', 'video'], required: true },
+        url: { type: String, required: true },
+        duration: { type: Number, default: 0 },
+      },
+    ],
+    default: [],
+  })
+  media?: Array<{ type: 'image' | 'video'; url: string; duration?: number }>;
 
   @Prop({ type: Number, default: 0, min: 0 })
   likesCount: number;

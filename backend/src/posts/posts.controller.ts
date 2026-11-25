@@ -107,9 +107,11 @@ export class PostsController {
   @UseInterceptors(
     FileFieldsInterceptor(
       [
+        { name: 'images', maxCount: 10 },
+        { name: 'videos', maxCount: 3 },
         { name: 'image', maxCount: 1 },
         { name: 'video', maxCount: 1 },
-        { name: 'media', maxCount: 1 },
+        { name: 'media', maxCount: 10 },
       ],
       postMediaMulterOptions,
     ),
@@ -119,36 +121,56 @@ export class PostsController {
     @Body() createPostDto: CreatePostDto,
     @UploadedFiles()
     files?: {
+      images?: Express.Multer.File[];
+      videos?: Express.Multer.File[];
       image?: Express.Multer.File[];
       video?: Express.Multer.File[];
       media?: Express.Multer.File[];
     },
   ) {
     const userId = req['user']._id.toString();
-    const uploadedFile =
-      files?.media?.[0] || files?.video?.[0] || files?.image?.[0];
 
-    let uploadedImageUrl: string | undefined;
-    let uploadedVideoUrl: string | undefined;
+    const mediaItems: Array<{ type: 'image' | 'video'; url: string; duration?: number }> = [];
 
-    if (uploadedFile) {
-      const isVideo = uploadedFile.mimetype.startsWith('video/');
-      const fileUrl = `${req.protocol}://${req.get('host')}/uploads/posts/${
-        isVideo ? 'videos' : 'images'
-      }/${uploadedFile.filename}`;
+    const getFileUrl = (file: Express.Multer.File, isVideo: boolean) => {
+      const folder = isVideo ? 'videos' : 'images';
+      return `${req.protocol}://${req.get('host')}/uploads/posts/${folder}/${file.filename}`;
+    };
 
-      if (isVideo) {
-        uploadedVideoUrl = fileUrl;
-      } else {
-        uploadedImageUrl = fileUrl;
-      }
+    const allImages: Express.Multer.File[] = [
+      ...(files?.images || []),
+      ...(files?.image || []),
+      ...(files?.media?.filter((f) => f.mimetype.startsWith('image/')) || []),
+    ];
+    for (const f of allImages) {
+      mediaItems.push({
+        type: 'image',
+        url: getFileUrl(f, false),
+      });
     }
+
+    const allVideos: Express.Multer.File[] = [
+      ...(files?.videos || []),
+      ...(files?.video || []),
+      ...(files?.media?.filter((f) => f.mimetype.startsWith('video/')) || []),
+    ];
+    for (const f of allVideos) {
+      mediaItems.push({
+        type: 'video',
+        url: getFileUrl(f, true),
+        duration: createPostDto.videoDuration ? Number(createPostDto.videoDuration) : 0,
+      });
+    }
+
+    const uploadedImageUrl = mediaItems.find((m) => m.type === 'image')?.url;
+    const uploadedVideoUrl = mediaItems.find((m) => m.type === 'video')?.url;
 
     return this.postsService.createPost(
       userId,
       createPostDto,
       uploadedImageUrl,
       uploadedVideoUrl,
+      mediaItems,
     );
   }
 
@@ -234,9 +256,11 @@ export class PostsController {
   @UseInterceptors(
     FileFieldsInterceptor(
       [
+        { name: 'images', maxCount: 10 },
+        { name: 'videos', maxCount: 3 },
         { name: 'image', maxCount: 1 },
         { name: 'video', maxCount: 1 },
-        { name: 'media', maxCount: 1 },
+        { name: 'media', maxCount: 10 },
       ],
       postMediaMulterOptions,
     ),
@@ -247,30 +271,49 @@ export class PostsController {
     @Body() updatePostDto: UpdatePostDto,
     @UploadedFiles()
     files?: {
+      images?: Express.Multer.File[];
+      videos?: Express.Multer.File[];
       image?: Express.Multer.File[];
       video?: Express.Multer.File[];
       media?: Express.Multer.File[];
     },
   ) {
     const userId = req['user']._id.toString();
-    const uploadedFile =
-      files?.media?.[0] || files?.video?.[0] || files?.image?.[0];
 
-    let uploadedImageUrl: string | undefined;
-    let uploadedVideoUrl: string | undefined;
+    const mediaItems: Array<{ type: 'image' | 'video'; url: string; duration?: number }> = [];
 
-    if (uploadedFile) {
-      const isVideo = uploadedFile.mimetype.startsWith('video/');
-      const fileUrl = `${req.protocol}://${req.get('host')}/uploads/posts/${
-        isVideo ? 'videos' : 'images'
-      }/${uploadedFile.filename}`;
+    const getFileUrl = (file: Express.Multer.File, isVideo: boolean) => {
+      const folder = isVideo ? 'videos' : 'images';
+      return `${req.protocol}://${req.get('host')}/uploads/posts/${folder}/${file.filename}`;
+    };
 
-      if (isVideo) {
-        uploadedVideoUrl = fileUrl;
-      } else {
-        uploadedImageUrl = fileUrl;
-      }
+    const allImages: Express.Multer.File[] = [
+      ...(files?.images || []),
+      ...(files?.image || []),
+      ...(files?.media?.filter((f) => f.mimetype.startsWith('image/')) || []),
+    ];
+    for (const f of allImages) {
+      mediaItems.push({
+        type: 'image',
+        url: getFileUrl(f, false),
+      });
     }
+
+    const allVideos: Express.Multer.File[] = [
+      ...(files?.videos || []),
+      ...(files?.video || []),
+      ...(files?.media?.filter((f) => f.mimetype.startsWith('video/')) || []),
+    ];
+    for (const f of allVideos) {
+      mediaItems.push({
+        type: 'video',
+        url: getFileUrl(f, true),
+        duration: updatePostDto.videoDuration ? Number(updatePostDto.videoDuration) : 0,
+      });
+    }
+
+    const uploadedImageUrl = mediaItems.find((m) => m.type === 'image')?.url;
+    const uploadedVideoUrl = mediaItems.find((m) => m.type === 'video')?.url;
 
     return this.postsService.updatePost(
       id,
@@ -278,6 +321,7 @@ export class PostsController {
       updatePostDto,
       uploadedImageUrl,
       uploadedVideoUrl,
+      mediaItems,
     );
   }
 

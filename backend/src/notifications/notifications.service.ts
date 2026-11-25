@@ -100,11 +100,7 @@ export class NotificationsService {
         .find({
           post: { $in: userPostIds },
           $or: [{ user: { $ne: userObjectId } }, { author: { $ne: userObjectId } }],
-          $and: [
-            {
-              $or: [{ parentComment: null }, { parentId: null }],
-            },
-          ],
+          parentComment: null,
           isDeleted: false,
         })
         .populate('user', 'name avatarUrl')

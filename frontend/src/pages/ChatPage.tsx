@@ -1119,13 +1119,17 @@ export function ChatPage() {
                     Loading messages...
                   </div>
                 ) : uniqueMessages.length === 0 ? (
-                  <div className="py-24 text-center">
-                    <Avatar
-                      name={activeFriend.name}
-                      avatarUrl={activeFriend.avatarUrl}
-                      size="lg"
-                    />
-                    <h3 className="mt-3 text-sm font-bold text-slate-800 dark:text-slate-100">
+                  <div className="py-20 flex flex-col items-center justify-center text-center">
+                    <div className="flex justify-center">
+                      <Avatar
+                        name={activeFriend.name}
+                        avatarUrl={activeFriend.avatarUrl}
+                        size="xl"
+                        isOnline={isOnline(activeFriend.id)}
+                        showOnlineStatus={true}
+                      />
+                    </div>
+                    <h3 className="mt-4 text-base font-bold text-slate-800 dark:text-slate-100">
                       {activeFriend.name}
                     </h3>
                     <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">

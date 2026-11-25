@@ -83,14 +83,19 @@ export function CommentSection({
       try {
         const res = await postsApi.getComments(postId, pageToLoad, 20);
 
+        // Safety filter: ensure only true top-level comments are stored at the root list
+        const topLevelComments = (res.comments || []).filter(
+          (c) => !c.parentComment && !c.parentId,
+        );
+
         if (append) {
           setComments((prev) => {
             const existingIds = new Set(prev.map((c) => c.id));
-            const newComments = res.comments.filter((c) => !existingIds.has(c.id));
+            const newComments = topLevelComments.filter((c) => !existingIds.has(c.id));
             return [...prev, ...newComments];
           });
         } else {
-          setComments(res.comments);
+          setComments(topLevelComments);
         }
 
         setPage(pageToLoad);

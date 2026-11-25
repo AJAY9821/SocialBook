@@ -55,7 +55,7 @@ export function Avatar({
       />
     ) : (
       <div
-        className={`${sizeClass} rounded-full bg-blue-600 text-white font-semibold flex items-center justify-center shrink-0 select-none`}
+        className={`${sizeClass} rounded-full bg-blue-600 text-white font-semibold inline-flex items-center justify-center shrink-0 select-none`}
       >
         {getInitials(name)}
       </div>
