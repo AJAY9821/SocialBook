@@ -31,7 +31,7 @@ export const authApi = {
       statusCode: number;
       msg: string;
       accessToken: string;
-      refreshToken: string;
+      refreshToken?: string;
       expiry: string;
       user: User;
     }>('/auth/login', payload);

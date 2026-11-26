@@ -60,9 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (payload: LoginPayload) => {
     const res = await authApi.login(payload);
     localStorage.setItem(TOKEN_STORAGE_KEY, res.accessToken);
-    if (res.refreshToken) {
-      localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, res.refreshToken);
-    }
+    localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
     setUser(res.user);
   };
 
@@ -73,8 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      const refreshToken = localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY) || undefined;
-      await authApi.logout(refreshToken);
+      await authApi.logout();
     } catch {
       // Even if token already expired on server, clear local session
     } finally {

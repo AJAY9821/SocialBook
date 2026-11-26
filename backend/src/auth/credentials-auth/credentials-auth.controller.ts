@@ -94,7 +94,8 @@ export class CredentialsAuthController {
     if (result.refreshToken) {
       res.cookie(REFRESH_COOKIE_NAME, result.refreshToken, getCookieOptions());
     }
-    return result;
+    const { refreshToken, ...safeResponse } = result as any;
+    return safeResponse;
   }
 
   @ApiResponse({
@@ -151,7 +152,8 @@ export class CredentialsAuthController {
     if (result.refreshToken) {
       res.cookie(REFRESH_COOKIE_NAME, result.refreshToken, getCookieOptions());
     }
-    return result;
+    const { refreshToken, ...safeResponse } = result as any;
+    return safeResponse;
   }
 
   @ApiResponse({
